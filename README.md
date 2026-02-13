@@ -12,7 +12,7 @@ From this repository root:
 
 ```bash
 bun install
-bun run bootstrap
+bun run setup
 ```
 
 This links the following into `~/.pi/agent`:
@@ -20,7 +20,12 @@ This links the following into `~/.pi/agent`:
 - `prompts/`
 - `extensions/`
 - `themes/`
-- `settings.json`
+- `APPEND_SYSTEM.md`
+
+It also merges repo overlays into:
+
+- `~/.pi/agent/settings.json`
+- `~/.pi/agent/pi-sub-bar-settings.json`
 
 ## Notes
 

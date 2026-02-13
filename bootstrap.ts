@@ -12,10 +12,16 @@ const links: Array<{ link: string; target: string }> = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
   { link: join(PI_DIR, "extensions"), target: join(REPO_DIR, "extensions") },
   { link: join(PI_DIR, "themes"), target: join(REPO_DIR, "themes") },
+  { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
 ];
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
+const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction"];
+
+const SUB_BAR_SETTINGS_OVERLAY = join(REPO_DIR, "sub-bar-settings.json");
+const PI_SUB_BAR_SETTINGS = join(PI_DIR, "pi-sub-bar-settings.json");
+const SUB_BAR_SETTINGS_OWNED_KEYS = ["display", "displayThemes", "displayUserTheme"];
 
 function assertSafePath(path: string) {
   const blocked = ["/", HOME, join(HOME, ".pi"), join(HOME, ".pi", "agent")];
@@ -47,8 +53,39 @@ async function relink(linkPath: string, targetPath: string) {
   console.log(`linked ${linkPath} -> ${targetPath}`);
 }
 
-async function mergeSettings(overlayPath: string, targetPath: string) {
-  const overlay = JSON.parse(await readFile(overlayPath, "utf-8"));
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...target };
+  for (const key of Object.keys(source)) {
+    const sourceValue = source[key];
+    const targetValue = result[key];
+    if (isObject(sourceValue) && isObject(targetValue)) {
+      result[key] = deepMerge(targetValue, sourceValue);
+    } else {
+      result[key] = sourceValue;
+    }
+  }
+  return result;
+}
+
+async function mergeJsonOverlay(
+  overlayPath: string,
+  targetPath: string,
+  ownedKeys: string[] = [],
+  label = "settings overlay",
+) {
+  if (!existsSync(overlayPath)) {
+    console.log(`skip ${label}: overlay not found at ${overlayPath}`);
+    return;
+  }
+
+  const overlay = JSON.parse(await readFile(overlayPath, "utf-8")) as Record<string, unknown>;
 
   let existing: Record<string, unknown> = {};
   if (existsSync(targetPath)) {
@@ -57,13 +94,21 @@ async function mergeSettings(overlayPath: string, targetPath: string) {
     if (stat.isSymbolicLink()) {
       await rm(targetPath, { force: true });
     } else {
-      existing = JSON.parse(await readFile(targetPath, "utf-8"));
+      existing = JSON.parse(await readFile(targetPath, "utf-8")) as Record<string, unknown>;
     }
   }
 
-  const merged = { ...existing, ...overlay };
+  const merged = deepMerge(existing, overlay);
+  for (const key of ownedKeys) {
+    if (key in overlay) {
+      merged[key] = overlay[key];
+    } else {
+      delete merged[key];
+    }
+  }
+
   await writeFile(targetPath, JSON.stringify(merged, null, 2) + "\n");
-  console.log(`merged settings overlay into ${targetPath}`);
+  console.log(`merged ${label} into ${targetPath}`);
 }
 
 async function main() {
@@ -76,7 +121,15 @@ async function main() {
   }
 
   // Merge settings overlay into pi's settings (instead of symlinking)
-  await mergeSettings(SETTINGS_OVERLAY, PI_SETTINGS);
+  await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_KEYS, "pi settings overlay");
+
+  // Merge sub-bar theme display settings (if present)
+  await mergeJsonOverlay(
+    SUB_BAR_SETTINGS_OVERLAY,
+    PI_SUB_BAR_SETTINGS,
+    SUB_BAR_SETTINGS_OWNED_KEYS,
+    "sub-bar settings overlay",
+  );
 
   console.log("bootstrap complete");
 }

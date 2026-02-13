@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "bootstrap": "bun run bootstrap.ts"
+    "setup": "bun run bootstrap.ts"
   },
   "engines": {
     "bun": ">=1.0.0"

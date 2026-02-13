@@ -34,6 +34,10 @@ Use the dedicated truncated tools for high-volume command output:
 
 **Do NOT use `bash` for:** `git diff`, `git log`, `git show`, `find`, recursive `ls`, `cat`, `head`/`tail` with large counts, `less`, `more`, or `strings`. These will be blocked and redirected to the dedicated tools above.
 
+When suggesting **user-run shell commands**:
+- Prefer **`!!command`** for exploratory/high-volume output (excluded from LLM context).
+- Use **`!command`** only when output should be included in the next prompt context.
+
 ## 6. Tool preference order
 For any task, prefer tools in this order:
 1. Dedicated truncated tools (`rg`, `git_diff`, `git_log`, `find_files`, `run`)

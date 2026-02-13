@@ -1,3 +1,11 @@
 {
-  "theme": "solarized-light"
+  "theme": "solarized-light",
+  "packages": [
+    "npm:@marckrenn/pi-sub-bar"
+  ],
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 24576,
+    "keepRecentTokens": 12000
+  }
 }
