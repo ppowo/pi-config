@@ -1,0 +1,17 @@
+{
+  "name": "pi-config",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "bootstrap": "bun run bootstrap.ts"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "latest",
+    "@mariozechner/pi-tui": "latest",
+    "@sinclair/typebox": "latest"
+  }
+}
