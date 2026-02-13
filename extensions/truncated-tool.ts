@@ -1,5 +1,6 @@
 /**
  * Truncated rg (ripgrep) tool — overrides the built-in rg.
+ * Uses rg with fallback to grep -rn.
  * Caps output to 300 lines / 16KB.
  */
 
@@ -14,6 +15,28 @@ import { join } from "path";
 
 const MAX_LINES = 300;
 const MAX_BYTES = 16 * 1024;
+
+// Detect rg availability once at load time
+let hasRg = false;
+try {
+	execSync("rg --version", { stdio: "ignore" });
+	hasRg = true;
+} catch {}
+
+function buildCommand(pattern: string, searchPath: string, glob?: string): string {
+	if (hasRg) {
+		const args = ["rg", "--line-number", "--color=never", "--max-count=200"];
+		if (glob) args.push("--glob", glob);
+		args.push("--", pattern, searchPath);
+		return args.join(" ");
+	}
+
+	// Fallback: grep -rn
+	const args = ["grep", "-rn", "--color=never", "-m", "200"];
+	if (glob) args.push("--include", glob);
+	args.push("--", pattern, searchPath);
+	return args.join(" ");
+}
 
 const RgParams = Type.Object({
 	pattern: Type.String({ description: "Search pattern (regex)" }),
@@ -34,20 +57,16 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "rg",
 		label: "ripgrep",
-		description: `Search file contents using ripgrep. Output is truncated to ${MAX_LINES} lines or ${formatSize(MAX_BYTES)} (whichever is hit first). If truncated, full output is saved to a temp file.`,
+		description: `Search file contents. ${hasRg ? "Uses rg (respects .gitignore)" : "Uses grep"}. Output is truncated to ${MAX_LINES} lines or ${formatSize(MAX_BYTES)} (whichever is hit first). If truncated, full output is saved to a temp file.`,
 		parameters: RgParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const { pattern, path: searchPath, glob } = params;
-
-			const args = ["rg", "--line-number", "--color=never", "--max-count=200"];
-			if (glob) args.push("--glob", glob);
-			args.push(pattern);
-			args.push(searchPath || ".");
+			const cmd = buildCommand(pattern, searchPath || ".", glob);
 
 			let output: string;
 			try {
-				output = execSync(args.join(" "), {
+				output = execSync(cmd, {
 					cwd: ctx.cwd,
 					encoding: "utf-8",
 					maxBuffer: 100 * 1024 * 1024,
@@ -59,7 +78,7 @@ export default function (pi: ExtensionAPI) {
 						details: { pattern, path: searchPath, glob, matchCount: 0 } as RgDetails,
 					};
 				}
-				throw new Error(`ripgrep failed: ${err.message}`);
+				throw new Error(`${hasRg ? "rg" : "grep"} failed: ${err.message}`);
 			}
 
 			if (!output.trim()) {
