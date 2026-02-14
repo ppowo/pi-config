@@ -8,7 +8,7 @@
  * - /plan command or Ctrl+Alt+Shift+P to toggle
  * - /plan "..." seeds planning immediately
  * - /plan-latest and /plan-open for saved plan files
- * - Bash/run restricted to allowlisted read-only commands
+ * - Bash commands allowed only for read-only inspection in plan mode
  * - Structured plan validation (Goal/Scope/Assumptions/Plan/Risks/Validation)
  * - [DONE:n] markers to complete steps during execution
  * - Progress tracking widget during execution
@@ -24,19 +24,8 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { extractTodoItems, isSafeCommand, markCompletedSteps, type TodoItem } from "./utils";
 
 // Tool sets
-const PLAN_MODE_TOOL_PREFERENCE = ["read", "rg", "find_files", "git_diff", "git_log", "run", "bash", "questionnaire"];
-const EXECUTION_MODE_TOOL_PREFERENCE = [
-	"read",
-	"rg",
-	"find_files",
-	"git_diff",
-	"git_log",
-	"run",
-	"bash",
-	"edit",
-	"write",
-	"questionnaire",
-];
+const PLAN_MODE_TOOL_PREFERENCE = ["read", "grep", "find", "ls", "bash", "questionnaire"];
+const EXECUTION_MODE_TOOL_PREFERENCE = ["read", "grep", "find", "ls", "bash", "edit", "write", "questionnaire"];
 
 const REQUIRED_PLAN_SECTIONS = ["Goal", "Scope", "Assumptions", "Plan", "Risks", "Validation"] as const;
 type RequiredPlanSection = (typeof REQUIRED_PLAN_SECTIONS)[number];
@@ -492,16 +481,16 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// Block unsafe shell commands in plan mode
+	// Allow only read-only bash commands in plan mode
 	pi.on("tool_call", async (event) => {
 		if (!planModeEnabled) return;
-		if (event.toolName !== "bash" && event.toolName !== "run") return;
+		if (event.toolName !== "bash") return;
 
 		const command = String(event.input.command ?? "");
 		if (!isSafeCommand(command)) {
 			return {
 				block: true,
-				reason: `Plan mode: ${event.toolName} command blocked (not allowlisted). Use /plan to disable plan mode first.\nCommand: ${command}`,
+				reason: `Plan mode: bash command blocked (not allowlisted read-only). Use /plan to disable plan mode first.\nCommand: ${command}`,
 			};
 		}
 	});
@@ -544,16 +533,13 @@ You are in plan mode - a read-only exploration mode for safe code analysis.
 Allowed tools (read-only):
 - ${planToolsList}
 - edit/write are disabled
-- bash/run are restricted to allowlisted safe commands only
+- bash is limited to allowlisted read-only commands
 
-Context hygiene workflow (mandatory):
-1. Use rg or find_files first to narrow scope.
-2. Use read with offset+limit (default 200, max 400).
-3. Prefer dedicated truncated tools for high-volume output:
-   - rg, find_files, git_diff, git_log, run
-4. Summarize counts first, then drill down only where needed.
+Context hygiene:
+1. Built-in tool outputs are capped by pi (50KB / 2000 lines).
+2. For large files, prefer read with offset+limit in smaller chunks.
+3. Summarize findings first, then fetch more only as needed.
 
-Do not use grep/find/ls commands for exploration. Use rg/find_files instead.
 Do not attempt to make code changes.
 
 Return a structured markdown plan using ALL required sections at least once:

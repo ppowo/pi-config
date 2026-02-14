@@ -1,11 +1,10 @@
-# Context Hygiene (Always-On)
+# Context Hygiene (Lightweight)
 
 - Keep context lean without losing accuracy.
-- Prefer truncated tools first (`rg`, `find_files`, `git_diff`, `git_log`, `run`).
-- Use `read` only with `offset` + `limit` and small chunks.
-- Use `rg` before reading large files; read only relevant sections.
-- Avoid broad/unbounded command output. Fetch incrementally.
-- If output is large, provide summary + counts first, then drill down on demand.
-- When asking the user to run manual shell commands:
-  - Prefer `!!command` for exploratory/high-volume output (excluded from LLM context)
-  - Use `!command` only when the output should be included in the next prompt context
+- Built-in `read`/`bash` tool output is capped by pi (**50KB / 2000 lines**).
+- For large files, prefer `read` with `offset` + `limit` in smaller chunks.
+- Avoid broad/unbounded command output; fetch incrementally.
+- If output is large, summarize counts first, then drill down only where needed.
+- When asking the user to run shell commands:
+  - Prefer `!!command` for exploratory/high-volume output (excluded from model context)
+  - Use `!command` only when output should be included in the next prompt context
