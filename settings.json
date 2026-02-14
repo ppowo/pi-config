@@ -1,7 +1,8 @@
 {
   "theme": "solarized-light",
   "packages": [
-    "npm:@marckrenn/pi-sub-bar"
+    "npm:@marckrenn/pi-sub-bar",
+    "npm:pi-read-map"
   ],
   "compaction": {
     "enabled": true,

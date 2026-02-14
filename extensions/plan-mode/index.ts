@@ -3,39 +3,48 @@
  *
  * Read-only exploration mode for safe code analysis.
  * When enabled, only read-only tools are available.
- *
- * Features:
- * - /plan command or Ctrl+Alt+Shift+P to toggle
- * - /plan "..." seeds planning immediately
- * - /plan-latest and /plan-open for saved plan files
- * - Bash commands allowed only for read-only inspection in plan mode
- * - Structured plan validation (Goal/Scope/Assumptions/Plan/Risks/Validation)
- * - [DONE:n] markers to complete steps during execution
- * - Progress tracking widget during execution
  */
 
-import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { extractTodoItems, isSafeCommand, markCompletedSteps, type TodoItem } from "./utils";
+import { isSafeCommand, markCompletedSteps, type TodoItem } from "./utils";
+import { validatePlanOutput } from "./validation";
+import {
+	getPlanDir,
+	openPlanInEditor,
+	readPlanMarkdown,
+	resolveLatestPlanPath,
+	sanitizePlanPath,
+	savePlanMarkdown,
+	truncatePlanPreview,
+} from "./storage";
 
-// Tool sets
-const PLAN_MODE_TOOL_PREFERENCE = ["read", "grep", "find", "ls", "bash", "questionnaire"];
-const EXECUTION_MODE_TOOL_PREFERENCE = ["read", "grep", "find", "ls", "bash", "edit", "write", "questionnaire"];
+const PLAN_MODE_TOOL_PREFERENCE = ["read", "grep", "find", "ls", "bash", "questionnaire", "question"];
+const EXECUTION_MODE_TOOL_PREFERENCE = [
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"bash",
+	"edit",
+	"write",
+	"questionnaire",
+	"question",
+];
 
-const REQUIRED_PLAN_SECTIONS = ["Goal", "Scope", "Assumptions", "Plan", "Risks", "Validation"] as const;
-type RequiredPlanSection = (typeof REQUIRED_PLAN_SECTIONS)[number];
+interface PlanModeStateEntry {
+	enabled: boolean;
+	todos?: TodoItem[];
+	executing?: boolean;
+	lastPlanPrompt?: string;
+	lastPlanPath?: string;
+}
 
-// Type guard for assistant messages
 function isAssistantMessage(m: AgentMessage): m is AssistantMessage {
 	return m.role === "assistant" && Array.isArray(m.content);
 }
 
-// Extract text content from an assistant message
 function getTextContent(message: AssistantMessage): string {
 	return message.content
 		.filter((block): block is TextContent => block.type === "text")
@@ -54,210 +63,6 @@ function normalizeCommandArgs(args: unknown): string {
 	return "";
 }
 
-function getPlanDir(): string {
-	return path.join(os.homedir(), "Plans");
-}
-
-function slugify(text: string): string {
-	const slug = text
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 100);
-	return slug || "plan";
-}
-
-function derivePlanName(planText: string, promptHint?: string): string {
-	const goalLine = planText
-		.split(/\r?\n/)
-		.find((line) => /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?goal(?:\*{1,2})?\s*:/i.test(line));
-	const goalText = goalLine?.replace(/^.*?:\s*/, "").trim();
-	const base = (promptHint ?? "").trim() || goalText || "implementation plan";
-	const compact = base.replace(/\s+/g, " ").trim();
-	return `plan-for-${slugify(compact)}`;
-}
-
-async function getUniquePlanPath(plansDir: string, baseName: string): Promise<string> {
-	const now = new Date();
-	const yyyy = String(now.getFullYear());
-	const mm = String(now.getMonth() + 1).padStart(2, "0");
-	const dd = String(now.getDate()).padStart(2, "0");
-	const hh = String(now.getHours()).padStart(2, "0");
-	const dateStamp = `${yyyy}-${mm}-${dd}`;
-
-	const candidates = [
-		`${baseName}.md`,
-		`${baseName}-${dateStamp}.md`,
-		`${baseName}-${dateStamp}-${hh}.md`,
-	];
-
-	for (const candidate of candidates) {
-		const candidatePath = path.join(plansDir, candidate);
-		if (!(await fileExists(candidatePath))) return candidatePath;
-	}
-
-	let counter = 2;
-	while (true) {
-		const candidatePath = path.join(plansDir, `${baseName}-${dateStamp}-${hh}-${counter}.md`);
-		if (!(await fileExists(candidatePath))) return candidatePath;
-		counter += 1;
-	}
-}
-
-interface PlanSaveResult {
-	path: string;
-	updated: boolean;
-}
-
-async function savePlanMarkdown(planText: string, promptHint?: string, preferredPath?: string): Promise<PlanSaveResult> {
-	const normalizedPlan = `${planText.trim()}\n`;
-
-	if (preferredPath && (await fileExists(preferredPath))) {
-		await writeFile(preferredPath, normalizedPlan, "utf8");
-		return { path: preferredPath, updated: true };
-	}
-
-	const plansDir = getPlanDir();
-	await mkdir(plansDir, { recursive: true });
-
-	const baseName = derivePlanName(planText, promptHint);
-	const filePath = await getUniquePlanPath(plansDir, baseName);
-	await writeFile(filePath, normalizedPlan, "utf8");
-	return { path: filePath, updated: false };
-}
-
-function escapeRegex(input: string): string {
-	return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function buildPlanSectionRegex(section: RequiredPlanSection, global = false): RegExp {
-	return new RegExp(
-		`^\\s*(?:[-*]\\s*)?(?:#{1,6}\\s*)?(?:\\*{1,2})?${escapeRegex(section)}(?:\\*{1,2})?\\s*:`,
-		global ? "gim" : "im",
-	);
-}
-
-function countPlanSectionOccurrences(text: string, section: RequiredPlanSection): number {
-	const pattern = buildPlanSectionRegex(section, true);
-	return Array.from(text.matchAll(pattern)).length;
-}
-
-interface PlanValidationResult {
-	valid: boolean;
-	missingSections: RequiredPlanSection[];
-	duplicateSections: RequiredPlanSection[];
-	hasNumberedPlanSteps: boolean;
-	todoItems: TodoItem[];
-}
-
-interface PlanModeStateEntry {
-	enabled: boolean;
-	todos?: TodoItem[];
-	executing?: boolean;
-	lastPlanPrompt?: string;
-	lastPlanPath?: string;
-}
-
-function validatePlanOutput(text: string): PlanValidationResult {
-	const sectionCounts = {} as Record<RequiredPlanSection, number>;
-	for (const section of REQUIRED_PLAN_SECTIONS) {
-		sectionCounts[section] = countPlanSectionOccurrences(text, section);
-	}
-
-	const missingSections = REQUIRED_PLAN_SECTIONS.filter((section) => sectionCounts[section] === 0);
-	const duplicateSections = REQUIRED_PLAN_SECTIONS.filter((section) => sectionCounts[section] > 1);
-	const todoItems = extractTodoItems(text);
-	const hasNumberedPlanSteps = todoItems.length > 0;
-
-	return {
-		valid: missingSections.length === 0 && hasNumberedPlanSteps,
-		missingSections,
-		duplicateSections,
-		hasNumberedPlanSteps,
-		todoItems,
-	};
-}
-
-function truncatePlanPreview(text: string, maxLines = 120): string {
-	const normalized = text.replace(/\r\n/g, "\n").trim();
-	if (!normalized) return "(empty file)";
-	const lines = normalized.split("\n");
-	if (lines.length <= maxLines) return normalized;
-	return `${lines.slice(0, maxLines).join("\n")}\n\n[Preview truncated: showing ${maxLines} of ${lines.length} lines]`;
-}
-
-async function findLatestPlanPath(): Promise<string | undefined> {
-	const plansDir = getPlanDir();
-	await mkdir(plansDir, { recursive: true });
-	const entries = await readdir(plansDir, { withFileTypes: true });
-	const markdownFiles = entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".md"));
-	if (markdownFiles.length === 0) return undefined;
-
-	const filesWithMtime = await Promise.all(
-		markdownFiles.map(async (entry) => {
-			const filePath = path.join(plansDir, entry.name);
-			const fileStats = await stat(filePath);
-			return { filePath, mtimeMs: fileStats.mtimeMs };
-		}),
-	);
-
-	filesWithMtime.sort((a, b) => b.mtimeMs - a.mtimeMs);
-	return filesWithMtime[0]?.filePath;
-}
-
-async function fileExists(filePath: string | undefined): Promise<boolean> {
-	if (!filePath) return false;
-	try {
-		const fileStats = await stat(filePath);
-		return fileStats.isFile();
-	} catch {
-		return false;
-	}
-}
-
-async function resolveLatestPlanPath(lastPlanPath: string): Promise<string | undefined> {
-	if (await fileExists(lastPlanPath)) return lastPlanPath;
-	return findLatestPlanPath();
-}
-
-function runOpenCommand(command: string, args: string[]): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: "ignore" });
-		child.once("error", reject);
-		child.once("close", (code) => {
-			if (code === 0) {
-				resolve();
-				return;
-			}
-			reject(new Error(`${command} exited with code ${code ?? "unknown"}`));
-		});
-	});
-}
-
-async function openInEditor(filePath: string): Promise<void> {
-	const candidates: Array<{ command: string; args: string[] }> = [{ command: "code", args: [filePath] }];
-
-	if (process.platform === "darwin") {
-		candidates.push({ command: "open", args: ["-a", "Visual Studio Code", filePath] });
-	} else if (process.platform === "win32") {
-		candidates.push({ command: "cmd", args: ["/c", "start", "", filePath] });
-	} else if (process.platform === "linux") {
-		candidates.push({ command: "xdg-open", args: [filePath] });
-	}
-
-	let lastError: unknown;
-	for (const candidate of candidates) {
-		try {
-			await runOpenCommand(candidate.command, candidate.args);
-			return;
-		} catch (error) {
-			lastError = error;
-		}
-	}
-
-	throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "Unknown error"));
-}
-
 function resolveAvailableTools(pi: ExtensionAPI, preferred: string[]): string[] {
 	const available = new Set(pi.getAllTools().map((tool) => tool.name));
 	return preferred.filter((name) => available.has(name));
@@ -273,6 +78,87 @@ function uniqueTools(tools: string[]): string[] {
 		}
 	}
 	return result;
+}
+
+function buildPlanContext(tools: string[]): string {
+	const planToolsList = tools.length > 0 ? tools.join(", ") : "(none)";
+	return `[PLAN MODE ACTIVE]
+You are in plan mode - a read-only exploration mode for safe code analysis.
+
+Allowed tools (read-only):
+- ${planToolsList}
+- edit/write are disabled
+- bash and user ! commands are limited to allowlisted read-only commands
+
+Context hygiene:
+1. Built-in tool outputs are capped by pi (50KB / 2000 lines).
+2. For large files, prefer read with offset+limit in smaller chunks.
+3. Summarize findings first, then fetch more only as needed.
+
+Do not attempt to make code changes.
+
+Return a structured markdown plan.
+Preferred sections (include what is relevant for this task):
+- Goal:
+- Scope:
+- Assumptions:
+- Plan:
+- Risks:
+- Validation:
+
+Format guidance:
+1. Under "Plan:", prefer a numbered list (1., 2., 3., ...) for step tracking.
+2. Keep steps concrete, actionable, and repository-specific.
+3. Do not execute changes in plan mode.
+4. If information is missing, ask clarifying questions in "Assumptions:".
+5. Missing sections are allowed when not applicable.
+6. Duplicate sections are allowed in lenient mode, but keep output tidy.
+
+Template:
+Goal:
+- ...
+
+Scope:
+- In scope: ...
+- Out of scope: ...
+
+Assumptions:
+- ...
+
+Plan:
+1. ...
+2. ...
+
+Risks:
+- ...
+
+Validation:
+- ...`;
+}
+
+function buildExecutionContext(remaining: TodoItem[]): string {
+	const todoList = remaining.map((t) => `${t.step}. ${t.text}`).join("\n");
+	return `[EXECUTING PLAN - Full tool access enabled]
+
+Remaining steps:
+${todoList}
+
+Execute each step in order.
+After completing a step, include a [DONE:n] tag in your response.`;
+}
+
+function buildValidationNotes(validation: ReturnType<typeof validatePlanOutput>): string {
+	const notes: string[] = [];
+	if (validation.missingSections.length > 0) {
+		notes.push(`ℹ Missing sections tolerated: ${validation.missingSections.join(", ")}`);
+	}
+	if (!validation.hasNumberedPlanSteps) {
+		notes.push('ℹ No numbered steps found under "Plan:". Saved anyway; execution tracking may be unavailable.');
+	}
+	if (validation.duplicateSections.length > 0) {
+		notes.push(`⚠ Duplicate sections detected (lenient mode): ${validation.duplicateSections.join(", ")}`);
+	}
+	return notes.length > 0 ? `\n\n${notes.join("\n")}` : "";
 }
 
 export default function planModeExtension(pi: ExtensionAPI): void {
@@ -318,22 +204,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		toolsBeforePlanMode = null;
 	}
 
-	function enterPlanMode(ctx: ExtensionContext): void {
-		rememberToolsBeforePlanMode();
-		planModeEnabled = true;
-		executionMode = false;
-		todoItems = [];
-		refinementTargetPath = "";
-		const tools = getPlanModeTools();
-		pi.setActiveTools(tools);
-		updateStatus(ctx);
-		if (ctx.hasUI) {
-			ctx.ui.notify(`Plan mode enabled. Tools: ${tools.join(", ")}`);
-		}
-	}
-
 	function updateStatus(ctx: ExtensionContext): void {
-		// Footer status
 		if (executionMode && todoItems.length > 0) {
 			const completed = todoItems.filter((t) => t.completed).length;
 			ctx.ui.setStatus("plan-mode", ctx.ui.theme.fg("accent", `📋 ${completed}/${todoItems.length}`));
@@ -343,7 +214,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			ctx.ui.setStatus("plan-mode", undefined);
 		}
 
-		// Widget showing todo list
 		if (executionMode && todoItems.length > 0) {
 			const lines = todoItems.map((item) => {
 				if (item.completed) {
@@ -356,6 +226,22 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			ctx.ui.setWidget("plan-todos", lines);
 		} else {
 			ctx.ui.setWidget("plan-todos", undefined);
+		}
+	}
+
+	function enterPlanMode(ctx: ExtensionContext): void {
+		rememberToolsBeforePlanMode();
+		planModeEnabled = true;
+		executionMode = false;
+		todoItems = [];
+		refinementTargetPath = "";
+
+		const tools = getPlanModeTools();
+		pi.setActiveTools(tools);
+		updateStatus(ctx);
+
+		if (ctx.hasUI) {
+			ctx.ui.notify(`Plan mode enabled. Tools: ${tools.join(", ")}`);
 		}
 	}
 
@@ -387,10 +273,9 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("plan", {
-		description: "Toggle plan mode or run planning prompt: /plan \"your request\"",
+		description: 'Toggle plan mode or run planning prompt: /plan "your request"',
 		handler: async (args, ctx) => {
 			const prompt = normalizeCommandArgs(args);
-
 			if (!prompt) {
 				togglePlanMode(ctx);
 				persistState();
@@ -399,9 +284,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
 			lastPlanPrompt = prompt;
 			refinementTargetPath = "";
-			if (!planModeEnabled) {
-				enterPlanMode(ctx);
-			}
+			if (!planModeEnabled) enterPlanMode(ctx);
 
 			persistState();
 			pi.sendUserMessage(prompt);
@@ -424,15 +307,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				}
 
 				lastPlanPath = planPath;
-				const markdown = await readFile(planPath, "utf8");
+				const markdown = await readPlanMarkdown(planPath);
 				const preview = truncatePlanPreview(markdown, 80);
 
 				pi.sendMessage(
-					{
-						customType: "plan-latest",
-						content: `Latest plan:\n\`${planPath}\`\n\n${preview}`,
-						display: true,
-					},
+					{ customType: "plan-latest", content: `Latest plan:\n\`${planPath}\`\n\n${preview}`, display: true },
 					{ triggerTurn: false },
 				);
 				if (ctx.hasUI) {
@@ -466,14 +345,11 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				}
 
 				lastPlanPath = planPath;
-				await openInEditor(planPath);
+				await openPlanInEditor(planPath);
 				if (ctx.hasUI) {
 					ctx.ui.notify(`Opened plan: ${planPath}`, "info");
 				}
-				pi.sendMessage(
-					{ customType: "plan-open", content: `Opened plan:\n\`${planPath}\``, display: true },
-					{ triggerTurn: false },
-				);
+				pi.sendMessage({ customType: "plan-open", content: `Opened plan:\n\`${planPath}\``, display: true }, { triggerTurn: false });
 				persistState();
 			} catch (error) {
 				const message = `Failed to open latest plan: ${String(error)}\nUse /plan-latest to get the path.`;
@@ -516,9 +392,24 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// Allow only read-only bash commands in plan mode
 	pi.on("tool_call", async (event) => {
 		if (!planModeEnabled) return;
+
+		if (event.toolName === "edit" || event.toolName === "write") {
+			return {
+				block: true,
+				reason: `Plan mode: ${event.toolName} is blocked. Use /plan to disable plan mode first.`,
+			};
+		}
+
+		const allowedTools = getPlanModeTools();
+		if (!allowedTools.includes(event.toolName)) {
+			return {
+				block: true,
+				reason: `Plan mode: tool "${event.toolName}" is not allowed. Allowed tools: ${allowedTools.join(", ") || "(none)"}`,
+			};
+		}
+
 		if (event.toolName !== "bash") return;
 
 		const command = String(event.input.command ?? "");
@@ -530,7 +421,24 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	// Filter out stale plan mode context when not in plan mode
+	pi.on("user_bash", async (event) => {
+		if (!planModeEnabled) return;
+
+		const command = String(event.command ?? "");
+		if (isSafeCommand(command)) return;
+
+		return {
+			result: {
+				output:
+					`Plan mode: user command blocked (not allowlisted read-only). Use /plan to disable plan mode first.\n` +
+					`Command: ${command}`,
+				exitCode: 1,
+				cancelled: false,
+				truncated: false,
+			},
+		};
+	});
+
 	pi.on("context", async (event) => {
 		if (planModeEnabled) return;
 
@@ -554,65 +462,12 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		};
 	});
 
-	// Inject plan/execution context before agent starts
 	pi.on("before_agent_start", async () => {
 		if (planModeEnabled) {
-			const planTools = getPlanModeTools();
-			const planToolsList = planTools.length > 0 ? planTools.join(", ") : "(none)";
 			return {
 				message: {
 					customType: "plan-mode-context",
-					content: `[PLAN MODE ACTIVE]
-You are in plan mode - a read-only exploration mode for safe code analysis.
-
-Allowed tools (read-only):
-- ${planToolsList}
-- edit/write are disabled
-- bash is limited to allowlisted read-only commands
-
-Context hygiene:
-1. Built-in tool outputs are capped by pi (50KB / 2000 lines).
-2. For large files, prefer read with offset+limit in smaller chunks.
-3. Summarize findings first, then fetch more only as needed.
-
-Do not attempt to make code changes.
-
-Return a structured markdown plan using ALL required sections at least once:
-- Goal:
-- Scope:
-- Assumptions:
-- Plan:
-- Risks:
-- Validation:
-
-Format requirements:
-1. Under "Plan:", provide a numbered list (1., 2., 3., ...).
-2. Keep steps concrete, actionable, and repository-specific.
-3. Do not execute changes in plan mode.
-4. If information is missing, ask clarifying questions in "Assumptions:".
-5. Plans missing any required section or numbered Plan steps will be rejected and not saved.
-6. Duplicate sections are allowed in lenient mode, but keep output tidy.
-
-Template:
-Goal:
-- ...
-
-Scope:
-- In scope: ...
-- Out of scope: ...
-
-Assumptions:
-- ...
-
-Plan:
-1. ...
-2. ...
-
-Risks:
-- ...
-
-Validation:
-- ...`,
+					content: buildPlanContext(getPlanModeTools()),
 					display: false,
 				},
 			};
@@ -620,24 +475,17 @@ Validation:
 
 		if (executionMode && todoItems.length > 0) {
 			const remaining = todoItems.filter((t) => !t.completed);
-			const todoList = remaining.map((t) => `${t.step}. ${t.text}`).join("\n");
+			if (remaining.length === 0) return;
 			return {
 				message: {
 					customType: "plan-execution-context",
-					content: `[EXECUTING PLAN - Full tool access enabled]
-
-Remaining steps:
-${todoList}
-
-Execute each step in order.
-After completing a step, include a [DONE:n] tag in your response.`,
+					content: buildExecutionContext(remaining),
 					display: false,
 				},
 			};
 		}
 	});
 
-	// Track progress after each turn
 	pi.on("turn_end", async (event, ctx) => {
 		if (!executionMode || todoItems.length === 0) return;
 		if (!isAssistantMessage(event.message)) return;
@@ -649,9 +497,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 		persistState();
 	});
 
-	// Handle plan completion and plan mode UI
 	pi.on("agent_end", async (event, ctx) => {
-		// Check if execution is complete
 		if (executionMode && todoItems.length > 0) {
 			if (todoItems.every((t) => t.completed)) {
 				const completedList = todoItems.map((t) => `~~${t.text}~~`).join("\n");
@@ -663,14 +509,13 @@ After completing a step, include a [DONE:n] tag in your response.`,
 				todoItems = [];
 				restoreToolsAfterPlanMode();
 				updateStatus(ctx);
-				persistState(); // Save cleared state so resume doesn't restore old execution mode
+				persistState();
 			}
 			return;
 		}
 
 		if (!planModeEnabled) return;
 
-		// Validate and persist only structured plan output from the last assistant message
 		const lastAssistant = [...event.messages].reverse().find(isAssistantMessage);
 		let planMarkdownPath: string | undefined;
 		let canExecutePlan = false;
@@ -691,15 +536,11 @@ After completing a step, include a [DONE:n] tag in your response.`,
 					lastPlanPath = saveResult.path;
 					refinementTargetPath = "";
 
-					const duplicateWarning =
-						validation.duplicateSections.length > 0
-							? `\n\n⚠ Duplicate sections detected (lenient mode): ${validation.duplicateSections.join(", ")}`
-							: "";
-
+					const validationNotes = buildValidationNotes(validation);
 					pi.sendMessage(
 						{
 							customType: saveResult.updated ? "plan-md-updated" : "plan-md-saved",
-							content: `${saveResult.updated ? "Plan updated:" : "Plan saved to:"}\n\`${planMarkdownPath}\`${duplicateWarning}`,
+							content: `${saveResult.updated ? "Plan updated:" : "Plan saved to:"}\n\`${planMarkdownPath}\`${validationNotes}`,
 							display: true,
 						},
 						{ triggerTurn: false },
@@ -708,7 +549,7 @@ After completing a step, include a [DONE:n] tag in your response.`,
 					if (validation.duplicateSections.length > 0 && ctx.hasUI) {
 						ctx.ui.notify(
 							`Duplicate sections detected (allowed): ${validation.duplicateSections.join(", ")}`,
-							"warning",
+							"info",
 						);
 					}
 				} catch (error) {
@@ -716,25 +557,12 @@ After completing a step, include a [DONE:n] tag in your response.`,
 					if (ctx.hasUI) {
 						ctx.ui.notify(message, "error");
 					} else {
-						pi.sendMessage(
-							{ customType: "plan-md-save-error", content: message, display: true },
-							{ triggerTurn: false },
-						);
+						pi.sendMessage({ customType: "plan-md-save-error", content: message, display: true }, { triggerTurn: false });
 					}
 				}
 			} else {
 				todoItems = [];
-				const issues: string[] = [];
-				if (validation.missingSections.length > 0) {
-					issues.push(`Missing sections: ${validation.missingSections.join(", ")}`);
-				}
-				if (!validation.hasNumberedPlanSteps) {
-					issues.push('No numbered steps found under "Plan:".');
-				}
-				const details = issues.length > 0 ? `\n${issues.join("\n")}` : "";
-				const message =
-					`Plan not saved: output must contain sections ${REQUIRED_PLAN_SECTIONS.join(", ")} and a numbered list under \"Plan:\".` +
-					details;
+				const message = "Plan not saved: assistant output was empty. Please refine and try again.";
 				if (ctx.hasUI) {
 					ctx.ui.notify(message, "warning");
 				} else {
@@ -746,7 +574,6 @@ After completing a step, include a [DONE:n] tag in your response.`,
 		persistState();
 		if (!ctx.hasUI) return;
 
-		// Show plan steps and prompt for next action
 		if (todoItems.length > 0) {
 			const todoListText = todoItems.map((t, i) => `${i + 1}. ☐ ${t.text}`).join("\n");
 			pi.sendMessage(
@@ -777,31 +604,25 @@ After completing a step, include a [DONE:n] tag in your response.`,
 			updateStatus(ctx);
 
 			const execMessage = `Execute the plan. Start with: ${todoItems[0].text}`;
-			pi.sendMessage(
-				{ customType: "plan-mode-execute", content: execMessage, display: true },
-				{ triggerTurn: true },
-			);
+			pi.sendMessage({ customType: "plan-mode-execute", content: execMessage, display: true }, { triggerTurn: true });
 		} else if (choice === "Refine the plan") {
 			const refinement = await ctx.ui.editor("Refine the plan:", "");
 			const refinedPrompt = refinement?.trim();
 			if (refinedPrompt) {
 				lastPlanPrompt = refinedPrompt;
-				refinementTargetPath = lastPlanPath;
+				refinementTargetPath = sanitizePlanPath(lastPlanPath) ?? "";
 				persistState();
 				pi.sendUserMessage(refinedPrompt);
 			}
 		}
 	});
 
-	// Restore state on session start/resume
 	pi.on("session_start", async (_event, ctx) => {
 		if (pi.getFlag("plan") === true) {
 			planModeEnabled = true;
 		}
 
 		const entries = ctx.sessionManager.getEntries();
-
-		// Restore persisted state
 		const planModeEntry = entries
 			.filter((e: { type: string; customType?: string }) => e.type === "custom" && e.customType === "plan-mode")
 			.pop() as { data?: PlanModeStateEntry } | undefined;
@@ -811,14 +632,11 @@ After completing a step, include a [DONE:n] tag in your response.`,
 			todoItems = planModeEntry.data.todos ?? todoItems;
 			executionMode = planModeEntry.data.executing ?? executionMode;
 			lastPlanPrompt = planModeEntry.data.lastPlanPrompt ?? lastPlanPrompt;
-			lastPlanPath = planModeEntry.data.lastPlanPath ?? lastPlanPath;
+			lastPlanPath = sanitizePlanPath(planModeEntry.data.lastPlanPath) ?? lastPlanPath;
 		}
 
-		// On resume: re-scan messages to rebuild completion state
-		// Only scan messages AFTER the last "plan-mode-execute" to avoid picking up [DONE:n] from previous plans
 		const isResume = planModeEntry !== undefined;
 		if (isResume && executionMode && todoItems.length > 0) {
-			// Find the index of the last plan-mode-execute entry (marks when current execution started)
 			let executeIndex = -1;
 			for (let i = entries.length - 1; i >= 0; i--) {
 				const entry = entries[i] as { type: string; customType?: string };
@@ -828,7 +646,6 @@ After completing a step, include a [DONE:n] tag in your response.`,
 				}
 			}
 
-			// Only scan messages after the execute marker
 			const messages: AssistantMessage[] = [];
 			for (let i = executeIndex + 1; i < entries.length; i++) {
 				const entry = entries[i];

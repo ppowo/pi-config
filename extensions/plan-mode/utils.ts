@@ -21,13 +21,16 @@ const DESTRUCTIVE_PATTERNS = [
 	/\bshred\b/i,
 	/(^|[^<])>(?!>)/,
 	/>>/,
-	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
-	/\byarn\s+(add|remove|install|publish)/i,
-	/\bpnpm\s+(add|remove|install|publish)/i,
-	/\bpip\s+(install|uninstall)/i,
-	/\bapt(-get)?\s+(install|remove|purge|update|upgrade)/i,
-	/\bbrew\s+(install|uninstall|upgrade)/i,
-	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|branch\s+-[dD]|stash|cherry-pick|revert|tag|init|clone)/i,
+	/\bnpm\s+(install|uninstall|update|ci|link|publish)\b/i,
+	/\byarn\s+(add|remove|install|publish|up|upgrade)\b/i,
+	/\bpnpm\s+(add|remove|install|publish)\b/i,
+	/\bpip\s+(install|uninstall)\b/i,
+	/\bapt(-get)?\s+(install|remove|purge|update|upgrade)\b/i,
+	/\bbrew\s+(install|uninstall|upgrade)\b/i,
+	/\bgit\s+(add|commit|push|pull|merge|rebase|reset|checkout|stash|cherry-pick|revert|tag|init|clone)\b/i,
+	/\bgit\s+branch\s+(-[dDmMcC]|--delete|--move|--copy)\b/i,
+	/\bgit\s+remote\s+(add|remove|rename|set-url)\b/i,
+	/\bgit\s+config\s+--(add|unset|replace-all)\b/i,
 	/\bsudo\b/i,
 	/\bsu\b/i,
 	/\bkill\b/i,
@@ -35,13 +38,30 @@ const DESTRUCTIVE_PATTERNS = [
 	/\bkillall\b/i,
 	/\breboot\b/i,
 	/\bshutdown\b/i,
-	/\bsystemctl\s+(start|stop|restart|enable|disable)/i,
-	/\bservice\s+\S+\s+(start|stop|restart)/i,
+	/\bsystemctl\s+(start|stop|restart|enable|disable)\b/i,
+	/\bservice\s+\S+\s+(start|stop|restart)\b/i,
 	/\b(vim?|nano|emacs|code|subl)\b/i,
 ];
 
-// Safe read-only commands allowed in plan mode
-const SAFE_PATTERNS = [
+// Shell constructs that make "read-only" hard to guarantee
+const SHELL_RISK_PATTERNS = [
+	/&&/,
+	/\|\|/,
+	/\|/,
+	/(^|[^\\]);/,
+	/\s&\s/,
+	/\s&\s*$/,
+	/`/,
+	/\$\(/,
+	/<\(/,
+	/\r|\n/,
+	/\bfind\b[^\n]*\s-delete\b/i,
+	/\bfind\b[^\n]*\s-exec\b/i,
+	/\bxargs\b/i,
+];
+
+// Safe read-only commands that don't need extra argument inspection
+const GENERIC_SAFE_PATTERNS = [
 	/^\s*cat\b/,
 	/^\s*head\b/,
 	/^\s*tail\b/,
@@ -77,16 +97,11 @@ const SAFE_PATTERNS = [
 	/^\s*top\b/,
 	/^\s*htop\b/,
 	/^\s*free\b/,
-	/^\s*git\s+(status|log|diff|show|branch|remote|config\s+--get)/i,
-	/^\s*git\s+ls-/i,
-	/^\s*npm\s+(list|ls|view|info|search|outdated|audit)/i,
-	/^\s*yarn\s+(list|info|why|audit)/i,
-	/^\s*node\s+--version/i,
-	/^\s*python\s+--version/i,
-	/^\s*curl\s/i,
-	/^\s*wget\s+-O\s*-/i,
+	/^\s*node\s+--version\b/i,
+	/^\s*python\s+--version\b/i,
+	/^\s*wget\s+-O\s*-\b/i,
 	/^\s*jq\b/,
-	/^\s*sed\s+-n/i,
+	/^\s*sed\s+-n\b/i,
 	/^\s*awk\b/,
 	/^\s*rg\b/,
 	/^\s*fd\b/,
@@ -94,10 +109,197 @@ const SAFE_PATTERNS = [
 	/^\s*exa\b/,
 ];
 
+function tokenizeArgs(command: string): string[] {
+	return command
+		.trim()
+		.split(/\s+/)
+		.filter((token) => token.length > 0);
+}
+
+function startsWithCommand(command: string, name: string): boolean {
+	return new RegExp(`^\\s*${name}\\b`, "i").test(command);
+}
+
+function isSafeGitConfig(args: string[]): boolean {
+	if (args.length === 0) return false;
+	const first = args[0];
+	return ["--get", "--get-all", "--get-regexp", "--list", "-l"].includes(first);
+}
+
+function isSafeGitRemote(args: string[]): boolean {
+	if (args.length === 0) return true;
+	if (args.length === 1 && args[0] === "-v") return true;
+	if (args[0] === "show" && args.length <= 2) return true;
+	return false;
+}
+
+function isSafeGitBranch(args: string[]): boolean {
+	if (args.length === 0) return true;
+
+	const allowedFlags = new Set([
+		"-a",
+		"-r",
+		"-v",
+		"-vv",
+		"-l",
+		"--all",
+		"--remotes",
+		"--verbose",
+		"--list",
+		"--show-current",
+		"--contains",
+		"--no-contains",
+		"--merged",
+		"--no-merged",
+		"--points-at",
+		"--sort",
+		"--format",
+		"--color",
+		"--ignore-case",
+		"--omit-empty",
+		"--column",
+	]);
+
+	let sawOption = false;
+	for (const arg of args) {
+		if (!arg.startsWith("-")) {
+			// Creating a branch (e.g. "git branch feature") is not read-only.
+			if (!sawOption) return false;
+			continue;
+		}
+
+		sawOption = true;
+		const flag = arg.split("=", 1)[0];
+		if (!allowedFlags.has(flag)) return false;
+	}
+
+	return true;
+}
+
+function isSafeGitCommand(command: string): boolean {
+	const tokens = tokenizeArgs(command).map((token) => token.toLowerCase());
+	if (tokens[0] !== "git") return false;
+	if (tokens.length < 2) return false;
+
+	const subCommand = tokens[1];
+	const args = tokens.slice(2);
+
+	if (["status", "log", "diff", "show"].includes(subCommand)) return true;
+	if (subCommand.startsWith("ls-")) return true;
+	if (subCommand === "config") return isSafeGitConfig(args);
+	if (subCommand === "remote") return isSafeGitRemote(args);
+	if (subCommand === "branch") return isSafeGitBranch(args);
+
+	return false;
+}
+
+function isSafeNpmCommand(command: string): boolean {
+	const tokens = tokenizeArgs(command).map((token) => token.toLowerCase());
+	if (tokens[0] !== "npm") return false;
+	if (tokens.length < 2) return false;
+
+	const subCommand = tokens[1];
+	if (!["list", "ls", "view", "info", "search", "outdated", "audit"].includes(subCommand)) {
+		return false;
+	}
+	if (subCommand === "audit" && tokens.slice(2).some((arg) => arg === "fix" || arg === "--fix")) {
+		return false;
+	}
+	return true;
+}
+
+function isSafeYarnCommand(command: string): boolean {
+	const tokens = tokenizeArgs(command).map((token) => token.toLowerCase());
+	if (tokens[0] !== "yarn") return false;
+	if (tokens.length < 2) return false;
+
+	const subCommand = tokens[1];
+	if (!["list", "info", "why", "audit"].includes(subCommand)) return false;
+	if (subCommand === "audit" && tokens.slice(2).some((arg) => arg === "fix" || arg === "--fix")) {
+		return false;
+	}
+	return true;
+}
+
+function isSafeCurlCommand(command: string): boolean {
+	const tokens = tokenizeArgs(command);
+	if (tokens.length < 2) return false;
+	if (tokens[0].toLowerCase() !== "curl") return false;
+
+	const unsafeShortFlags = new Set(["-o", "-O", "-T", "-d", "-F"]);
+	const unsafeLongFlags = new Set([
+		"--output",
+		"--remote-name",
+		"--remote-name-all",
+		"--upload-file",
+		"--data",
+		"--data-raw",
+		"--data-binary",
+		"--data-urlencode",
+		"--form",
+		"--form-string",
+	]);
+	const unsafeLongPrefixFlags = [
+		"--output=",
+		"--upload-file=",
+		"--data=",
+		"--data-raw=",
+		"--data-binary=",
+		"--data-urlencode=",
+		"--form=",
+		"--form-string=",
+	];
+
+	for (let i = 1; i < tokens.length; i++) {
+		const rawToken = tokens[i];
+		const lowerToken = rawToken.toLowerCase();
+
+		if (unsafeShortFlags.has(rawToken)) return false;
+		if (/^-([oTdF]).+/.test(rawToken)) return false;
+		if (unsafeLongFlags.has(lowerToken)) return false;
+		if (unsafeLongPrefixFlags.some((prefix) => lowerToken.startsWith(prefix))) return false;
+
+		if (rawToken === "-X" || lowerToken === "--request") {
+			const method = tokens[i + 1]?.toUpperCase();
+			if (!method) return false;
+			if (method !== "GET" && method !== "HEAD") return false;
+			i += 1;
+			continue;
+		}
+		if (rawToken.startsWith("-X") && rawToken.length > 2) {
+			const method = rawToken.slice(2).toUpperCase();
+			if (method !== "GET" && method !== "HEAD") return false;
+			continue;
+		}
+		if (lowerToken.startsWith("--request=")) {
+			const method = rawToken.split("=", 2)[1]?.toUpperCase() || "";
+			if (method !== "GET" && method !== "HEAD") return false;
+		}
+	}
+
+	return true;
+}
+
 export function isSafeCommand(command: string): boolean {
-	const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
-	const isSafe = SAFE_PATTERNS.some((p) => p.test(command));
-	return !isDestructive && isSafe;
+	const normalized = command.trim();
+	if (!normalized) return false;
+
+	for (const pattern of SHELL_RISK_PATTERNS) {
+		if (pattern.test(normalized)) return false;
+	}
+	for (const pattern of DESTRUCTIVE_PATTERNS) {
+		if (pattern.test(normalized)) return false;
+	}
+
+	if (startsWithCommand(normalized, "git")) return isSafeGitCommand(normalized);
+	if (startsWithCommand(normalized, "npm")) return isSafeNpmCommand(normalized);
+	if (startsWithCommand(normalized, "yarn")) return isSafeYarnCommand(normalized);
+	if (startsWithCommand(normalized, "curl")) return isSafeCurlCommand(normalized);
+
+	for (const pattern of GENERIC_SAFE_PATTERNS) {
+		if (pattern.test(normalized)) return true;
+	}
+	return false;
 }
 
 export interface TodoItem {
@@ -147,28 +349,36 @@ function getPlanBlocks(message: string): string[] {
 	return blocks;
 }
 
+function appendPlanItems(lines: string[], items: TodoItem[], acceptBullets: boolean): void {
+	for (const rawLine of lines) {
+		const numberedMatch = rawLine.match(/^\s*(\d+)[.)]\s+(.+?)\s*$/);
+		const bulletMatch = !numberedMatch && acceptBullets ? rawLine.match(/^\s*[-*]\s+(.+?)\s*$/) : null;
+		const candidate = numberedMatch ? numberedMatch[2] : bulletMatch?.[1];
+		if (!candidate) continue;
+
+		const text = candidate
+			.trim()
+			.replace(/\*{1,2}$/, "")
+			.trim();
+		if (text.length < 6 || text.startsWith("`") || text.startsWith("/") || text.startsWith("-")) {
+			continue;
+		}
+
+		const cleaned = cleanStepText(text);
+		if (cleaned.length < 4) continue;
+		items.push({ step: items.length + 1, text: cleaned, completed: false });
+	}
+}
+
 export function extractTodoItems(message: string): TodoItem[] {
 	for (const planBlock of getPlanBlocks(message)) {
-		const items: TodoItem[] = [];
-		for (const rawLine of planBlock.split(/\r?\n/)) {
-			const numberedMatch = rawLine.match(/^\s*(\d+)[.)]\s+(.+?)\s*$/);
-			if (!numberedMatch) continue;
+		const numberedItems: TodoItem[] = [];
+		appendPlanItems(planBlock.split(/\r?\n/), numberedItems, false);
+		if (numberedItems.length !== 0) return numberedItems;
 
-			const text = numberedMatch[2]
-				.trim()
-				.replace(/\*{1,2}$/, "")
-				.trim();
-			if (text.length > 5 && !text.startsWith("`") && !text.startsWith("/") && !text.startsWith("-")) {
-				const cleaned = cleanStepText(text);
-				if (cleaned.length > 3) {
-					items.push({ step: items.length + 1, text: cleaned, completed: false });
-				}
-			}
-		}
-
-		if (items.length > 0) {
-			return items;
-		}
+		const bulletItems: TodoItem[] = [];
+		appendPlanItems(planBlock.split(/\r?\n/), bulletItems, true);
+		if (bulletItems.length !== 0) return bulletItems;
 	}
 
 	return [];
