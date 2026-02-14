@@ -63,8 +63,45 @@ function slugify(text: string): string {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "")
-		.slice(0, 50);
+		.slice(0, 100);
 	return slug || "plan";
+}
+
+function derivePlanName(planText: string, promptHint?: string): string {
+	const goalLine = planText
+		.split(/\r?\n/)
+		.find((line) => /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?goal(?:\*{1,2})?\s*:/i.test(line));
+	const goalText = goalLine?.replace(/^.*?:\s*/, "").trim();
+	const base = (promptHint ?? "").trim() || goalText || "implementation plan";
+	const compact = base.replace(/\s+/g, " ").trim();
+	return `plan-for-${slugify(compact)}`;
+}
+
+async function getUniquePlanPath(plansDir: string, baseName: string): Promise<string> {
+	const now = new Date();
+	const yyyy = String(now.getFullYear());
+	const mm = String(now.getMonth() + 1).padStart(2, "0");
+	const dd = String(now.getDate()).padStart(2, "0");
+	const hh = String(now.getHours()).padStart(2, "0");
+	const dateStamp = `${yyyy}-${mm}-${dd}`;
+
+	const candidates = [
+		`${baseName}.md`,
+		`${baseName}-${dateStamp}.md`,
+		`${baseName}-${dateStamp}-${hh}.md`,
+	];
+
+	for (const candidate of candidates) {
+		const candidatePath = path.join(plansDir, candidate);
+		if (!(await fileExists(candidatePath))) return candidatePath;
+	}
+
+	let counter = 2;
+	while (true) {
+		const candidatePath = path.join(plansDir, `${baseName}-${dateStamp}-${hh}-${counter}.md`);
+		if (!(await fileExists(candidatePath))) return candidatePath;
+		counter += 1;
+	}
 }
 
 interface PlanSaveResult {
@@ -83,10 +120,8 @@ async function savePlanMarkdown(planText: string, promptHint?: string, preferred
 	const plansDir = getPlanDir();
 	await mkdir(plansDir, { recursive: true });
 
-	const now = new Date();
-	const stamp = now.toISOString().replace(/[:]/g, "-").replace(/\..+$/, "");
-	const name = `${stamp}-${slugify(promptHint ?? "plan")}.md`;
-	const filePath = path.join(plansDir, name);
+	const baseName = derivePlanName(planText, promptHint);
+	const filePath = await getUniquePlanPath(plansDir, baseName);
 	await writeFile(filePath, normalizedPlan, "utf8");
 	return { path: filePath, updated: false };
 }
