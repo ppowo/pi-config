@@ -55,7 +55,7 @@ For any task, prefer tools in this order:
 - When truncation occurs, note the temp file path and offer to read specific sections from it.
 
 ## 8. Compaction
-Auto-compaction triggers at **80k tokens** via `trigger-compact.ts`. This means context is actively managed — you do not need to omit useful detail to "save space." Focus on accuracy and let compaction handle the rest. You can also trigger it manually with `/trigger-compact [instructions]`.
+Auto-compaction is handled by pi's built-in compaction settings. This means context is actively managed — you do not need to omit useful detail to "save space." Focus on accuracy and let compaction handle the rest. You can trigger compaction manually with built-in `/compact [instructions]` or `/trigger-compact [instructions]`.
 
 ## 9. Safety net
 Even if a tool call slips through, `context-guard.ts` will truncate any tool result exceeding 300 lines / 16KB after execution. But prefer using the right tool to begin with.

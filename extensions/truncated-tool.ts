@@ -8,13 +8,14 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { formatSize, type TruncationResult, truncateHead } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 const MAX_LINES = 300;
 const MAX_BYTES = 16 * 1024;
+const MAX_BUFFER = 100 * 1024 * 1024;
 
 // Detect rg availability once at load time
 let hasRg = false;
@@ -23,19 +24,24 @@ try {
 	hasRg = true;
 } catch {}
 
-function buildCommand(pattern: string, searchPath: string, glob?: string): string {
+interface CommandInvocation {
+	command: "rg" | "grep";
+	args: string[];
+}
+
+function buildInvocation(pattern: string, searchPath: string, glob?: string): CommandInvocation {
 	if (hasRg) {
-		const args = ["rg", "--line-number", "--color=never", "--max-count=200"];
+		const args = ["--line-number", "--color=never", "--max-count=200"];
 		if (glob) args.push("--glob", glob);
 		args.push("--", pattern, searchPath);
-		return args.join(" ");
+		return { command: "rg", args };
 	}
 
 	// Fallback: grep -rn
-	const args = ["grep", "-rn", "--color=never", "-m", "200"];
+	const args = ["-rn", "--color=never", "-m", "200"];
 	if (glob) args.push("--include", glob);
 	args.push("--", pattern, searchPath);
-	return args.join(" ");
+	return { command: "grep", args };
 }
 
 const RgParams = Type.Object({
@@ -62,23 +68,33 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const { pattern, path: searchPath, glob } = params;
-			const cmd = buildCommand(pattern, searchPath || ".", glob);
+			const targetPath = searchPath || ".";
+			const invocation = buildInvocation(pattern, targetPath, glob);
 
-			let output: string;
-			try {
-				output = execSync(cmd, {
-					cwd: ctx.cwd,
-					encoding: "utf-8",
-					maxBuffer: 100 * 1024 * 1024,
-				});
-			} catch (err: any) {
-				if (err.status === 1) {
-					return {
-						content: [{ type: "text", text: "No matches found" }],
-						details: { pattern, path: searchPath, glob, matchCount: 0 } as RgDetails,
-					};
-				}
-				throw new Error(`${hasRg ? "rg" : "grep"} failed: ${err.message}`);
+			const result = spawnSync(invocation.command, invocation.args, {
+				cwd: ctx.cwd,
+				encoding: "utf-8",
+				maxBuffer: MAX_BUFFER,
+			});
+
+			if (result.error) {
+				throw new Error(`${invocation.command} failed: ${result.error.message}`);
+			}
+
+			const output = result.stdout || "";
+			const stderr = (result.stderr || "").trim();
+			const exitCode = result.status ?? 0;
+
+			if (exitCode === 1 && !output.trim()) {
+				return {
+					content: [{ type: "text", text: "No matches found" }],
+					details: { pattern, path: searchPath, glob, matchCount: 0 } as RgDetails,
+				};
+			}
+
+			if (exitCode !== 0 && exitCode !== 1) {
+				const suffix = stderr ? ` ${stderr}` : "";
+				throw new Error(`${invocation.command} failed (exit ${exitCode}).${suffix}`);
 			}
 
 			if (!output.trim()) {

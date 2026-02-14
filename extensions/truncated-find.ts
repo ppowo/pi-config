@@ -9,13 +9,14 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { formatSize, truncateHead } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 const MAX_LINES = 300;
 const MAX_BYTES = 16 * 1024;
+const MAX_BUFFER = 100 * 1024 * 1024;
 
 // Detect fd availability once at load time
 let hasFd = false;
@@ -24,27 +25,48 @@ try {
 	hasFd = true;
 } catch {}
 
-function buildCommand(searchPath: string, maxdepth: number, excludeDirs: string[], type?: string, glob?: string): string {
+interface FindInvocation {
+	command: "fd" | "find";
+	args: string[];
+}
+
+function buildInvocation(
+	searchPath: string,
+	maxdepth: number,
+	excludeDirs: string[],
+	type?: string,
+	glob?: string,
+): FindInvocation {
 	if (hasFd) {
-		const args = ["fd", "--max-depth", String(maxdepth), "--color=never"];
+		const args = ["--max-depth", String(maxdepth), "--color=never"];
 		for (const dir of excludeDirs) {
-			args.push("--exclude", dir);
+			if (dir) args.push("--exclude", dir);
 		}
 		if (type === "f") args.push("--type", "file");
 		else if (type === "d") args.push("--type", "directory");
 		if (glob) args.push("--glob", glob);
 		args.push(".", searchPath);
-		return `${args.join(" ")} 2>/dev/null | sort`;
+		return { command: "fd", args };
 	}
 
 	// Fallback: plain find
-	const args = ["find", searchPath, "-maxdepth", String(maxdepth)];
+	const args = [searchPath, "-maxdepth", String(maxdepth)];
 	for (const dir of excludeDirs) {
+		if (!dir) continue;
 		args.push("-not", "-path", `*/${dir}/*`, "-not", "-name", dir);
 	}
 	if (type) args.push("-type", type);
 	if (glob) args.push("-name", glob);
-	return `${args.join(" ")} 2>/dev/null | sort`;
+	return { command: "find", args };
+}
+
+function sortOutputLines(output: string): string {
+	const entries = output
+		.split("\n")
+		.map((line) => line.replace(/\r$/, ""))
+		.filter((line) => line.trim().length > 0)
+		.sort((a, b) => a.localeCompare(b));
+	return entries.join("\n");
 }
 
 const Params = Type.Object({
@@ -72,20 +94,28 @@ export default function (pi: ExtensionAPI) {
 			const searchPath = params.path || ".";
 			const maxdepth = params.maxdepth ?? 5;
 			const excludeDirs = (params.exclude || "node_modules,.git,dist,build").split(",").map((d) => d.trim());
+			const invocation = buildInvocation(searchPath, maxdepth, excludeDirs, params.type, params.glob);
 
-			const cmd = buildCommand(searchPath, maxdepth, excludeDirs, params.type, params.glob);
+			const result = spawnSync(invocation.command, invocation.args, {
+				cwd: ctx.cwd,
+				encoding: "utf-8",
+				maxBuffer: MAX_BUFFER,
+			});
 
-			let output: string;
-			try {
-				output = execSync(cmd, {
-					cwd: ctx.cwd,
-					encoding: "utf-8",
-					maxBuffer: 100 * 1024 * 1024,
-				});
-			} catch (err: any) {
-				throw new Error(`${hasFd ? "fd" : "find"} failed: ${err.message}`);
+			if (result.error) {
+				throw new Error(`${invocation.command} failed: ${result.error.message}`);
 			}
 
+			const stdout = result.stdout || "";
+			const stderr = (result.stderr || "").trim();
+			const exitCode = result.status ?? 0;
+
+			if (exitCode !== 0 && !stdout.trim()) {
+				const suffix = stderr ? ` ${stderr}` : "";
+				throw new Error(`${invocation.command} failed (exit ${exitCode}).${suffix}`);
+			}
+
+			const output = sortOutputLines(stdout);
 			if (!output.trim()) {
 				return {
 					content: [{ type: "text", text: "No entries found." }],

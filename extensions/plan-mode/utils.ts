@@ -47,9 +47,6 @@ const SAFE_PATTERNS = [
 	/^\s*tail\b/,
 	/^\s*less\b/,
 	/^\s*more\b/,
-	/^\s*grep\b/,
-	/^\s*find\b/,
-	/^\s*ls\b/,
 	/^\s*pwd\b/,
 	/^\s*echo\b/,
 	/^\s*printf\b/,
@@ -126,27 +123,52 @@ export function cleanStepText(text: string): string {
 	return cleaned;
 }
 
+function createSectionHeaderRegex(): RegExp {
+	return /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?(Goal|Scope|Assumptions|Plan|Risks|Validation)(?:\*{1,2})?\s*:/gim;
+}
+
+function getPlanBlocks(message: string): string[] {
+	const headers = Array.from(message.matchAll(createSectionHeaderRegex()));
+	if (headers.length === 0) return [];
+
+	const blocks: string[] = [];
+	for (let i = 0; i < headers.length; i++) {
+		const match = headers[i];
+		const section = String(match[1] || "").toLowerCase();
+		if (section !== "plan") continue;
+
+		const startIndex = (match.index ?? 0) + match[0].length;
+		const endIndex = i + 1 < headers.length ? (headers[i + 1].index ?? message.length) : message.length;
+		blocks.push(message.slice(startIndex, endIndex));
+	}
+	return blocks;
+}
+
 export function extractTodoItems(message: string): TodoItem[] {
-	const items: TodoItem[] = [];
-	const headerMatch = message.match(/\*{0,2}Plan:\*{0,2}\s*\n/i);
-	if (!headerMatch) return items;
+	for (const planBlock of getPlanBlocks(message)) {
+		const items: TodoItem[] = [];
+		for (const rawLine of planBlock.split(/\r?\n/)) {
+			const numberedMatch = rawLine.match(/^\s*(\d+)[.)]\s+(.+?)\s*$/);
+			if (!numberedMatch) continue;
 
-	const planSection = message.slice(message.indexOf(headerMatch[0]) + headerMatch[0].length);
-	const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
-
-	for (const match of planSection.matchAll(numberedPattern)) {
-		const text = match[2]
-			.trim()
-			.replace(/\*{1,2}$/, "")
-			.trim();
-		if (text.length > 5 && !text.startsWith("`") && !text.startsWith("/") && !text.startsWith("-")) {
-			const cleaned = cleanStepText(text);
-			if (cleaned.length > 3) {
-				items.push({ step: items.length + 1, text: cleaned, completed: false });
+			const text = numberedMatch[2]
+				.trim()
+				.replace(/\*{1,2}$/, "")
+				.trim();
+			if (text.length > 5 && !text.startsWith("`") && !text.startsWith("/") && !text.startsWith("-")) {
+				const cleaned = cleanStepText(text);
+				if (cleaned.length > 3) {
+					items.push({ step: items.length + 1, text: cleaned, completed: false });
+				}
 			}
 		}
+
+		if (items.length > 0) {
+			return items;
+		}
 	}
-	return items;
+
+	return [];
 }
 
 export function extractDoneSteps(message: string): number[] {
