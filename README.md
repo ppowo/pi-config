@@ -1,33 +1,49 @@
 # pi-config
 
-Bun-first bootstrap for local pi agent configuration.
+My personal pi agent config repo.
 
-## Requirements
+It keeps prompts/extensions/themes in version control and bootstraps them into `~/.pi/agent`.
 
-- [Bun](https://bun.sh) installed
+## Prerequisites
 
-## Usage
+- [Bun](https://bun.sh) (`>=1.0.0`)
+- pi installed locally
 
-From this repository root:
+## Setup
+
+From this repo root:
 
 ```bash
 bun install
 bun run setup
 ```
 
-This links the following into `~/.pi/agent`:
+## What setup does
 
-- `prompts/`
-- `extensions/`
-- `themes/`
-- `APPEND_SYSTEM.md`
+`bun run setup` runs `bootstrap.ts`, which:
 
-It also merges repo overlays into:
+- symlinks into `~/.pi/agent`:
+  - `prompts/`
+  - `extensions/`
+  - `themes/`
+  - `APPEND_SYSTEM.md`
+- merges overlay files into:
+  - `~/.pi/agent/settings.json` (from `settings.json`)
+  - `~/.pi/agent/pi-sub-bar-settings.json` (from `sub-bar-settings.json`)
 
-- `~/.pi/agent/settings.json`
-- `~/.pi/agent/pi-sub-bar-settings.json`
+## Repo layout
 
-## Notes
+- `bootstrap.ts` — setup/link/merge script
+- `prompts/` — prompt files
+- `extensions/` — pi extensions
+- `themes/` — pi themes
+- `settings.json` — base pi settings overlay
+- `sub-bar-settings.json` — sub-bar display overlay
 
-- This project intentionally uses `latest` dependencies.
-- Lockfiles are intentionally not tracked (`package-lock.json`, `bun.lock`, `bun.lockb`).
+## Re-run / update
+
+Re-run `bun run setup` any time you change files in this repo or set up a new machine.
+
+## Note
+
+This repo intentionally tracks only certain keys in merged settings (theme/packages/compaction and sub-bar display keys). Other keys in your local pi settings are preserved.
