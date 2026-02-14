@@ -19,9 +19,6 @@ const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
 const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction.enabled"];
 
-const SUB_BAR_SETTINGS_OVERLAY = join(REPO_DIR, "sub-bar-settings.json");
-const PI_SUB_BAR_SETTINGS = join(PI_DIR, "pi-sub-bar-settings.json");
-const SUB_BAR_SETTINGS_OWNED_KEYS = ["display", "displayThemes", "displayUserTheme"];
 
 function assertSafePath(path: string) {
   const blocked = ["/", HOME, join(HOME, ".pi"), join(HOME, ".pi", "agent")];
@@ -201,14 +198,6 @@ async function main() {
 
   // Merge settings overlay into pi's settings (instead of symlinking)
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_KEYS, "pi settings overlay");
-
-  // Merge sub-bar theme display settings (if present)
-  await mergeJsonOverlay(
-    SUB_BAR_SETTINGS_OVERLAY,
-    PI_SUB_BAR_SETTINGS,
-    SUB_BAR_SETTINGS_OWNED_KEYS,
-    "sub-bar settings overlay",
-  );
 
   console.log("bootstrap complete");
 }

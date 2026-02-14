@@ -29,7 +29,6 @@ bun run setup
   - `APPEND_SYSTEM.md`
 - merges overlay files into:
   - `~/.pi/agent/settings.json` (from `settings.json`)
-  - `~/.pi/agent/pi-sub-bar-settings.json` (from `sub-bar-settings.json`)
 
 ## Repo layout
 
@@ -38,7 +37,6 @@ bun run setup
 - `extensions/` — pi extensions
 - `themes/` — pi themes
 - `settings.json` — base pi settings overlay
-- `sub-bar-settings.json` — sub-bar display overlay
 
 ## Re-run / update
 
@@ -46,4 +44,4 @@ Re-run `bun run setup` any time you change files in this repo or set up a new ma
 
 ## Note
 
-This repo intentionally tracks only certain keys in merged settings (theme/packages/compaction.enabled and sub-bar display keys). Other keys in your local pi settings are preserved.
+This repo intentionally tracks only certain keys in merged settings (`theme`, `packages`, `compaction.enabled`). Other keys in your local pi settings are preserved.
