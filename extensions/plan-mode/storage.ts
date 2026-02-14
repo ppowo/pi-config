@@ -38,23 +38,107 @@ function assertSafePlanPath(filePath: string): string {
 	return safePath;
 }
 
-function slugify(text: string): string {
-	const slug = text
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 100);
-	return slug || "plan";
+const PLAN_SECTION_NAMES = ["Goal", "Scope", "Assumptions", "Plan", "Risks", "Validation"] as const;
+const MAX_FILENAME_WORDS = 4;
+
+function createSectionHeaderRegex(): RegExp {
+	return new RegExp(
+		`^\\s*(?:[-*]\\s*)?(?:#{1,6}\\s*)?(?:\\*{1,2})?(${PLAN_SECTION_NAMES.join("|")})(?:\\*{1,2})?\\s*:`,
+		"gim",
+	);
+}
+
+function stripMarkdownSyntax(value: string): string {
+	return value
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+		.replace(/`([^`]+)`/g, "$1")
+		.replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
+		.replace(/^>\s*/g, "")
+		.trim();
+}
+
+function cleanLineContent(line: string): string {
+	return stripMarkdownSyntax(line)
+		.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "")
+		.replace(/^\s*(?:#{1,6})\s+/, "")
+		.trim();
+}
+
+function getSectionBlock(planText: string, targetSection: "Goal" | "Scope"): string {
+	const headers = Array.from(planText.matchAll(createSectionHeaderRegex()));
+	for (let i = 0; i < headers.length; i += 1) {
+		const match = headers[i];
+		if ((match[1] ?? "").toLowerCase() !== targetSection.toLowerCase()) continue;
+
+		const start = (match.index ?? 0) + match[0].length;
+		const end = i + 1 < headers.length ? (headers[i + 1].index ?? planText.length) : planText.length;
+		return planText.slice(start, end).trim();
+	}
+	return "";
+}
+
+function getFirstMeaningfulLine(block: string): string | undefined {
+	for (const rawLine of block.split(/\r?\n/)) {
+		const cleaned = cleanLineContent(rawLine);
+		if (!cleaned) continue;
+		const withoutScopeLabel = cleaned.replace(/^(?:in scope|out of scope)\s*:\s*/i, "").trim();
+		if (!withoutScopeLabel) continue;
+		return withoutScopeLabel;
+	}
+	return undefined;
+}
+
+function extractScopeText(planText: string): string | undefined {
+	const scopeBlock = getSectionBlock(planText, "Scope");
+	if (!scopeBlock) return undefined;
+
+	const lines = scopeBlock.split(/\r?\n/);
+	let collectingInScopeBullets = false;
+
+	for (const rawLine of lines) {
+		const cleaned = cleanLineContent(rawLine);
+		if (!cleaned) continue;
+
+		const inScopeMatch = cleaned.match(/^in scope\s*:\s*(.+)$/i);
+		if (inScopeMatch?.[1]?.trim()) {
+			return inScopeMatch[1].trim();
+		}
+		if (/^in scope\s*:?\s*$/i.test(cleaned)) {
+			collectingInScopeBullets = true;
+			continue;
+		}
+		if (/^out of scope\b/i.test(cleaned)) {
+			collectingInScopeBullets = false;
+			continue;
+		}
+		if (collectingInScopeBullets) {
+			return cleaned;
+		}
+	}
+
+	for (const rawLine of lines) {
+		const cleaned = cleanLineContent(rawLine);
+		if (!cleaned) continue;
+		if (/^out of scope\b/i.test(cleaned)) continue;
+		if (/^in scope\s*:?\s*$/i.test(cleaned)) continue;
+		return cleaned.replace(/^in scope\s*:\s*/i, "").trim();
+	}
+
+	return undefined;
+}
+
+function slugify(text: string, maxWords = MAX_FILENAME_WORDS): string {
+	const normalized = stripMarkdownSyntax(text).toLowerCase();
+	const words = normalized.match(/[a-z0-9]+/g) ?? [];
+	return words.slice(0, maxWords).join("-") || "plan";
 }
 
 function derivePlanName(planText: string, promptHint?: string): string {
-	const goalLine = planText
-		.split(/\r?\n/)
-		.find((line) => /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?goal(?:\*{1,2})?\s*:/i.test(line));
-	const goalText = goalLine?.replace(/^.*?:\s*/, "").trim();
-	const base = (promptHint ?? "").trim() || goalText || "implementation plan";
-	const compact = base.replace(/\s+/g, " ").trim();
-	return `plan-for-${slugify(compact)}`;
+	const scopeText = extractScopeText(planText);
+	const goalText = getFirstMeaningfulLine(getSectionBlock(planText, "Goal"));
+	const fallbackHint = (promptHint ?? "").trim();
+	const base = scopeText || goalText || fallbackHint || "plan";
+	return slugify(base);
 }
 
 async function fileExists(filePath: string | undefined): Promise<boolean> {

@@ -529,7 +529,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				try {
 					const saveResult = await savePlanMarkdown(
 						assistantText,
-						lastPlanPrompt || todoItems[0]?.text || "plan",
+						todoItems[0]?.text || "plan",
 						refinementTargetPath || undefined,
 					);
 					planMarkdownPath = saveResult.path;

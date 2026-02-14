@@ -16,6 +16,7 @@ When plan mode is enabled:
 Plan mode is read-only for repository changes, with one intentional write path:
 
 - Plan markdown files under `~/Plans/*.md`
+- Plan filenames are derived from the plan's `Scope` section (preferring `In scope`) and capped to 4 words.
 
 Refinement updates are restricted to previously saved plan files in that same directory.
 
