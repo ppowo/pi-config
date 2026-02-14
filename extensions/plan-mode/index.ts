@@ -80,8 +80,24 @@ function uniqueTools(tools: string[]): string[] {
 	return result;
 }
 
+function getClarificationGuidance(tools: string[]): string {
+	const hasQuestionnaire = tools.includes("questionnaire");
+	const hasQuestion = tools.includes("question");
+	const availableTools = [hasQuestionnaire ? "questionnaire" : "", hasQuestion ? "question" : ""]
+		.filter(Boolean)
+		.join(" or ");
+
+	if (!availableTools) {
+		return "If key information is missing, state concise assumptions and continue with the best possible plan.";
+	}
+
+	return `Ask focused clarifying questions with ${availableTools} both before drafting and during exploration whenever ambiguity blocks progress.`;
+}
+
 function buildPlanContext(tools: string[]): string {
 	const planToolsList = tools.length > 0 ? tools.join(", ") : "(none)";
+	const clarificationGuidance = getClarificationGuidance(tools);
+
 	return `[PLAN MODE ACTIVE]
 You are in plan mode - a read-only exploration mode for safe code analysis.
 
@@ -90,50 +106,25 @@ Allowed tools (read-only):
 - edit/write are disabled
 - bash and user ! commands are limited to allowlisted read-only commands
 
+Clarification policy:
+- ${clarificationGuidance}
+- Keep clarification questions minimal and high-impact.
+- Once critical ambiguities are resolved, return the plan in this response.
+- If clarification is unavailable, state assumptions briefly and continue.
+
 Context hygiene:
 1. Built-in tool outputs are capped by pi (50KB / 2000 lines).
 2. For large files, prefer read with offset+limit in smaller chunks.
 3. Summarize findings first, then fetch more only as needed.
 
+Plan output style:
+- Freeform markdown (this is the only style).
+- Goal/Scope/Assumptions/Plan/Risks/Validation headings are optional.
+- Include at least one clearly identifiable numbered or bulleted action list for execution tracking.
+- Keep steps concrete, actionable, and repository-specific.
+
 Do not attempt to make code changes.
-
-Return a structured markdown plan.
-Preferred sections (include what is relevant for this task):
-- Goal:
-- Scope:
-- Assumptions:
-- Plan:
-- Risks:
-- Validation:
-
-Format guidance:
-1. Under "Plan:", prefer a numbered list (1., 2., 3., ...) for step tracking.
-2. Keep steps concrete, actionable, and repository-specific.
-3. Do not execute changes in plan mode.
-4. If information is missing, ask clarifying questions in "Assumptions:".
-5. Missing sections are allowed when not applicable.
-6. Duplicate sections are allowed in lenient mode, but keep output tidy.
-
-Template:
-Goal:
-- ...
-
-Scope:
-- In scope: ...
-- Out of scope: ...
-
-Assumptions:
-- ...
-
-Plan:
-1. ...
-2. ...
-
-Risks:
-- ...
-
-Validation:
-- ...`;
+Do not execute changes in plan mode.`;
 }
 
 function buildExecutionContext(remaining: TodoItem[]): string {
@@ -149,14 +140,8 @@ After completing a step, include a [DONE:n] tag in your response.`;
 
 function buildValidationNotes(validation: ReturnType<typeof validatePlanOutput>): string {
 	const notes: string[] = [];
-	if (validation.missingSections.length > 0) {
-		notes.push(`ℹ Missing sections tolerated: ${validation.missingSections.join(", ")}`);
-	}
 	if (!validation.hasNumberedPlanSteps) {
-		notes.push('ℹ No numbered steps found under "Plan:". Saved anyway; execution tracking may be unavailable.');
-	}
-	if (validation.duplicateSections.length > 0) {
-		notes.push(`⚠ Duplicate sections detected (lenient mode): ${validation.duplicateSections.join(", ")}`);
+		notes.push("ℹ No numbered/bulleted step list detected. Saved anyway; execution tracking may be unavailable.");
 	}
 	return notes.length > 0 ? `\n\n${notes.join("\n")}` : "";
 }
@@ -290,6 +275,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 			pi.sendUserMessage(prompt);
 		},
 	});
+
 
 	pi.registerCommand("plan-latest", {
 		description: "Show the latest saved plan markdown path and preview",
@@ -529,7 +515,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 				try {
 					const saveResult = await savePlanMarkdown(
 						assistantText,
-						todoItems[0]?.text || "plan",
+						lastPlanPrompt || todoItems[0]?.text || "plan",
 						refinementTargetPath || undefined,
 					);
 					planMarkdownPath = saveResult.path;
@@ -546,12 +532,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 						{ triggerTurn: false },
 					);
 
-					if (validation.duplicateSections.length > 0 && ctx.hasUI) {
-						ctx.ui.notify(
-							`Duplicate sections detected (allowed): ${validation.duplicateSections.join(", ")}`,
-							"info",
-						);
-					}
 				} catch (error) {
 					const message = `Failed to save plan markdown: ${String(error)}`;
 					if (ctx.hasUI) {
@@ -621,6 +601,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 		if (pi.getFlag("plan") === true) {
 			planModeEnabled = true;
 		}
+
 
 		const entries = ctx.sessionManager.getEntries();
 		const planModeEntry = entries

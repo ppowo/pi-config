@@ -127,6 +127,37 @@ function extractScopeText(planText: string): string | undefined {
 	return undefined;
 }
 
+function extractFirstHeading(planText: string): string | undefined {
+	for (const rawLine of planText.split(/\r?\n/)) {
+		const match = rawLine.match(/^\s*#{1,6}\s+(.+?)\s*$/);
+		if (!match?.[1]) continue;
+
+		const heading = cleanLineContent(match[1]);
+		if (!heading) continue;
+		if (/^(?:plan|implementation plan|execution plan|steps|next steps)$/i.test(heading)) {
+			continue;
+		}
+		return heading;
+	}
+	return undefined;
+}
+
+function extractFirstMeaningfulPlanLine(planText: string): string | undefined {
+	for (const rawLine of planText.split(/\r?\n/)) {
+		const cleaned = cleanLineContent(rawLine);
+		if (!cleaned) continue;
+		if (/^(?:goal|scope|assumptions|plan|risks|validation)\s*:?\s*$/i.test(cleaned)) continue;
+
+		const withoutLabels = cleaned
+			.replace(/^(?:goal|scope|assumptions|plan|risks|validation)\s*:\s*/i, "")
+			.replace(/^(?:in scope|out of scope)\s*:\s*/i, "")
+			.trim();
+		if (!withoutLabels) continue;
+		return withoutLabels;
+	}
+	return undefined;
+}
+
 function slugify(text: string, maxWords = MAX_FILENAME_WORDS): string {
 	const normalized = stripMarkdownSyntax(text).toLowerCase();
 	const words = normalized.match(/[a-z0-9]+/g) ?? [];
@@ -136,8 +167,10 @@ function slugify(text: string, maxWords = MAX_FILENAME_WORDS): string {
 function derivePlanName(planText: string, promptHint?: string): string {
 	const scopeText = extractScopeText(planText);
 	const goalText = getFirstMeaningfulLine(getSectionBlock(planText, "Goal"));
+	const headingText = extractFirstHeading(planText);
+	const firstMeaningfulLine = extractFirstMeaningfulPlanLine(planText);
 	const fallbackHint = (promptHint ?? "").trim();
-	const base = scopeText || goalText || fallbackHint || "plan";
+	const base = scopeText || goalText || headingText || firstMeaningfulLine || fallbackHint || "plan";
 	return slugify(base);
 }
 

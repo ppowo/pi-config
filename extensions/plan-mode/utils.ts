@@ -332,6 +332,15 @@ function createSectionHeaderRegex(): RegExp {
 	return /^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?(Goal|Scope|Assumptions|Plan|Risks|Validation)(?:\*{1,2})?\s*:/gim;
 }
 
+const STEP_SECTION_HINT_REGEX =
+	/^\s*(?:#{1,6}\s*)?(?:\*{1,2})?(?:plan|steps|next steps|implementation plan|execution plan|approach|task list|actions)(?:\*{1,2})?\s*:?\s*$/i;
+
+function isLikelySectionHeader(line: string): boolean {
+	const trimmed = line.trim();
+	if (!trimmed) return false;
+	return /^(?:#{1,6}\s*)?(?:\*{1,2})?[a-z][a-z0-9\s\-/]{1,50}(?:\*{1,2})?\s*:\s*$/i.test(trimmed);
+}
+
 function getPlanBlocks(message: string): string[] {
 	const headers = Array.from(message.matchAll(createSectionHeaderRegex()));
 	if (headers.length === 0) return [];
@@ -346,6 +355,39 @@ function getPlanBlocks(message: string): string[] {
 		const endIndex = i + 1 < headers.length ? (headers[i + 1].index ?? message.length) : message.length;
 		blocks.push(message.slice(startIndex, endIndex));
 	}
+	return blocks;
+}
+
+function getStepHintBlocks(message: string): string[] {
+	const lines = message.split(/\r?\n/);
+	const blocks: string[] = [];
+
+	for (let i = 0; i < lines.length; i++) {
+		if (!STEP_SECTION_HINT_REGEX.test(lines[i].trim())) continue;
+
+		const blockLines: string[] = [];
+		let seenListLine = false;
+		for (let j = i + 1; j < lines.length; j++) {
+			const line = lines[j];
+			const trimmed = line.trim();
+
+			if (!trimmed) {
+				if (seenListLine) break;
+				continue;
+			}
+			if (isLikelySectionHeader(trimmed) && blockLines.length > 0) break;
+
+			if (/^\s*(?:\d+[.)]|[-*])\s+/.test(line)) {
+				seenListLine = true;
+			}
+			blockLines.push(line);
+		}
+
+		if (blockLines.length > 0) {
+			blocks.push(blockLines.join("\n"));
+		}
+	}
+
 	return blocks;
 }
 
@@ -370,16 +412,31 @@ function appendPlanItems(lines: string[], items: TodoItem[], acceptBullets: bool
 	}
 }
 
+function extractItemsFromText(text: string, acceptBullets: boolean): TodoItem[] {
+	const items: TodoItem[] = [];
+	appendPlanItems(text.split(/\r?\n/), items, acceptBullets);
+	return items;
+}
+
 export function extractTodoItems(message: string): TodoItem[] {
 	for (const planBlock of getPlanBlocks(message)) {
-		const numberedItems: TodoItem[] = [];
-		appendPlanItems(planBlock.split(/\r?\n/), numberedItems, false);
+		const numberedItems = extractItemsFromText(planBlock, false);
 		if (numberedItems.length !== 0) return numberedItems;
 
-		const bulletItems: TodoItem[] = [];
-		appendPlanItems(planBlock.split(/\r?\n/), bulletItems, true);
+		const bulletItems = extractItemsFromText(planBlock, true);
 		if (bulletItems.length !== 0) return bulletItems;
 	}
+
+	const numberedFallback = extractItemsFromText(message, false);
+	if (numberedFallback.length >= 2) return numberedFallback;
+
+	for (const hintedBlock of getStepHintBlocks(message)) {
+		const hintedItems = extractItemsFromText(hintedBlock, true);
+		if (hintedItems.length >= 2) return hintedItems;
+	}
+
+	const bulletFallback = extractItemsFromText(message, true);
+	if (bulletFallback.length >= 3) return bulletFallback;
 
 	return [];
 }
