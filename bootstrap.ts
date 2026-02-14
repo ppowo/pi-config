@@ -17,7 +17,7 @@ const links: Array<{ link: string; target: string }> = [
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
-const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction"];
+const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction.enabled"];
 
 const SUB_BAR_SETTINGS_OVERLAY = join(REPO_DIR, "sub-bar-settings.json");
 const PI_SUB_BAR_SETTINGS = join(PI_DIR, "pi-sub-bar-settings.json");
@@ -74,6 +74,81 @@ function deepMerge(
   return result;
 }
 
+function getPathValue(source: Record<string, unknown>, path: string[]): { found: boolean; value?: unknown } {
+  let current: unknown = source;
+
+  for (const segment of path) {
+    if (!isObject(current)) {
+      return { found: false };
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { found: false };
+    }
+
+    current = current[segment];
+  }
+
+  return { found: true, value: current };
+}
+
+function setPathValue(target: Record<string, unknown>, path: string[], value: unknown) {
+  if (path.length === 0) {
+    return;
+  }
+
+  let current = target;
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const segment = path[i];
+    const next = current[segment];
+
+    if (!isObject(next)) {
+      current[segment] = {};
+    }
+
+    current = current[segment] as Record<string, unknown>;
+  }
+
+  current[path[path.length - 1]] = value;
+}
+
+function deletePathValue(target: Record<string, unknown>, path: string[]) {
+  if (path.length === 0) {
+    return;
+  }
+
+  const trail: Array<{ parent: Record<string, unknown>; key: string }> = [];
+  let current: Record<string, unknown> = target;
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const segment = path[i];
+    const next = current[segment];
+
+    if (!isObject(next)) {
+      return;
+    }
+
+    trail.push({ parent: current, key: segment });
+    current = next;
+  }
+
+  delete current[path[path.length - 1]];
+
+  // Remove empty containers left behind by nested deletes.
+  for (let i = trail.length - 1; i >= 0; i--) {
+    const { parent, key } = trail[i];
+    const child = parent[key];
+
+    if (isObject(child) && Object.keys(child).length === 0) {
+      delete parent[key];
+      continue;
+    }
+
+    break;
+  }
+}
+
 async function mergeJsonOverlay(
   overlayPath: string,
   targetPath: string,
@@ -99,11 +174,15 @@ async function mergeJsonOverlay(
   }
 
   const merged = deepMerge(existing, overlay);
+
   for (const key of ownedKeys) {
-    if (key in overlay) {
-      merged[key] = overlay[key];
+    const path = key.split(".").filter(Boolean);
+    const { found, value } = getPathValue(overlay, path);
+
+    if (found) {
+      setPathValue(merged, path, value);
     } else {
-      delete merged[key];
+      deletePathValue(merged, path);
     }
   }
 

@@ -5,8 +5,6 @@
     "npm:pi-read-map"
   ],
   "compaction": {
-    "enabled": true,
-    "reserveTokens": 24576,
-    "keepRecentTokens": 12000
+    "enabled": true
   }
 }

@@ -46,4 +46,4 @@ Re-run `bun run setup` any time you change files in this repo or set up a new ma
 
 ## Note
 
-This repo intentionally tracks only certain keys in merged settings (theme/packages/compaction and sub-bar display keys). Other keys in your local pi settings are preserved.
+This repo intentionally tracks only certain keys in merged settings (theme/packages/compaction.enabled and sub-bar display keys). Other keys in your local pi settings are preserved.
