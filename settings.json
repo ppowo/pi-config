@@ -3,6 +3,7 @@
   "packages": [
     "npm:@marckrenn/pi-sub-bar",
     "npm:pi-read-map",
+    "npm:pi-agentic-compaction"
   ],
   "compaction": {
     "enabled": true
