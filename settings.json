@@ -3,7 +3,6 @@
   "packages": [
     "npm:@marckrenn/pi-sub-bar",
     "npm:pi-read-map",
-    "npm:pi-readcache"
   ],
   "compaction": {
     "enabled": true
