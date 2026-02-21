@@ -1,10 +1,14 @@
 {
   "theme": "solarized-light",
   "packages": [
+    "npm:@aaronmaturen/pi-context7",
     "npm:@marckrenn/pi-sub-bar",
     "npm:pi-read-map",
     "npm:pi-agentic-compaction",
-    "npm:pi-read-many"
+    "npm:pi-read-many",
+    "npm:@pborck/pi-de",
+    "npm:pi-rtk",
+    "npm:pi-finder-subagent"
   ],
   "compaction": {
     "enabled": true
