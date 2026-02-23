@@ -8,7 +8,6 @@
     "npm:pi-read-many",
     "npm:@pborck/pi-de",
     "npm:pi-rtk",
-    "npm:pi-finder-subagent",
     "git:github.com/ghoseb/pi-askuserquestion"
   ],
   "compaction": {
