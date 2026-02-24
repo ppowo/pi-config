@@ -7,7 +7,6 @@
     "npm:pi-agentic-compaction",
     "npm:pi-read-many",
     "npm:@pborck/pi-de",
-    "npm:pi-rtk",
     "git:github.com/ghoseb/pi-askuserquestion"
   ],
   "compaction": {
