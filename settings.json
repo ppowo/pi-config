@@ -8,7 +8,8 @@
     "npm:pi-read-many",
     "npm:@pborck/pi-de",
     "git:github.com/ghoseb/pi-askuserquestion",
-    "npm:@edmundmiller/pi-scurl"
+    "npm:pi-scurl",
+    "npm:@aliou/pi-synthetic"
   ],
   "compaction": {
     "enabled": true
