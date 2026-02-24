@@ -8,7 +8,6 @@
     "npm:pi-read-many",
     "npm:@pborck/pi-de",
     "git:github.com/ghoseb/pi-askuserquestion",
-    "npm:@edmundmiller/pi-dcp",
     "npm:@edmundmiller/pi-scurl"
   ],
   "compaction": {
