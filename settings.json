@@ -9,7 +9,8 @@
     "npm:@pborck/pi-de",
     "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-scurl",
-    "npm:@aliou/pi-synthetic"
+    "npm:@aliou/pi-synthetic",
+    "npm:pi-rtk"
   ],
   "compaction": {
     "enabled": true
