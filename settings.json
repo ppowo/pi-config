@@ -5,12 +5,12 @@
     "npm:@marckrenn/pi-sub-bar",
     "npm:pi-read-map",
     "npm:pi-agentic-compaction",
-    "npm:pi-read-many",
     "npm:@pborck/pi-de",
     "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-scurl",
     "npm:@aliou/pi-synthetic",
-    "npm:pi-rtk"
+    "npm:pi-rtk",
+    "npm:@ssweens/pi-handoff",
   ],
   "compaction": {
     "enabled": true
