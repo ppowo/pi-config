@@ -10,7 +10,7 @@
     "npm:pi-scurl",
     "npm:@aliou/pi-synthetic",
     "npm:pi-rtk",
-    "npm:@ssweens/pi-handoff",
+    "npm:@ssweens/pi-handoff"
   ],
   "compaction": {
     "enabled": true
