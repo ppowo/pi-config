@@ -10,7 +10,18 @@
     "npm:pi-scurl",
     "npm:@aliou/pi-synthetic",
     "npm:pi-rtk",
-    "npm:@ssweens/pi-handoff"
+    {
+      "source": "npm:pi-amplike",
+      "extensions": [
+        "extensions/handoff.ts",
+        "extensions/session-query.ts"
+      ],
+      "skills": [
+        "skills/session-query/**"
+      ],
+      "prompts": [],
+      "themes": []
+    }
   ],
   "compaction": {
     "enabled": true
