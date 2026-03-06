@@ -21,7 +21,9 @@ type DiffSpan = { start: number; end: number };
 type RgbColor = { r: number; g: number; b: number };
 
 type DiffPalette = {
+	addGhostBgAnsi: string;
 	addRowBgAnsi: string;
+	removeGhostBgAnsi: string;
 	removeRowBgAnsi: string;
 	addEmphasisBgAnsi: string;
 	removeEmphasisBgAnsi: string;
@@ -29,7 +31,9 @@ type DiffPalette = {
 
 const ANSI_ESCAPE_SEQUENCE_PATTERN = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const BG_ANSI_PATTERN = /\x1b\[(?:4\d|10\d|48;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3}|49)m/g;
+const ADD_GHOST_BACKGROUND_MIX_RATIO = 0.1;
 const ADD_ROW_BACKGROUND_MIX_RATIO = 0.24;
+const REMOVE_GHOST_BACKGROUND_MIX_RATIO = 0.06;
 const REMOVE_ROW_BACKGROUND_MIX_RATIO = 0.12;
 const ADD_INLINE_EMPHASIS_MIX_RATIO = 0.44;
 const REMOVE_INLINE_EMPHASIS_MIX_RATIO = 0.26;
@@ -41,6 +45,8 @@ const MAX_SPLIT_DIFF_CHARS = 120_000;
 const MAX_SPLIT_DIFF_LINES = 2_000;
 const MAX_RENDER_PATH_CHARS = 260;
 const MAX_RENDER_MESSAGE_CHARS = 600;
+const MAX_RAW_DIFF_PREVIEW_LINES_COLLAPSED = 32;
+const MAX_RAW_DIFF_PREVIEW_LINES_EXPANDED = 120;
 
 const editToolCache = new Map<string, ReturnType<typeof createEditTool>>();
 
@@ -127,6 +133,17 @@ function extractEditedPath(message: string): string | undefined {
 	return m?.[1];
 }
 
+function isSuccessfulEditMessage(message: string): boolean {
+	return /^Successfully replaced text in .+\.$/.test(message.trim());
+}
+
+function isLikelyEditErrorMessage(message: string): boolean {
+	const trimmed = message.trim();
+	if (!trimmed) return false;
+	if (/^error[:\s]/i.test(trimmed)) return true;
+	return /^(could not find the exact text in|found \d+ occurrences of the text in|no changes made to|file not found:|operation aborted\b)/i.test(trimmed);
+}
+
 function ansi256ToRgb(code: number): RgbColor {
 	if (code <= 15) {
 		const base16: RgbColor[] = [
@@ -204,13 +221,17 @@ function resolveDiffPalette(theme: Theme): DiffPalette {
 	const addFg = parseAnsiColorCode(theme.getFgAnsi("toolDiffAdded")) ?? { r: 88, g: 173, b: 88 };
 	const removeFg = parseAnsiColorCode(theme.getFgAnsi("toolDiffRemoved")) ?? { r: 196, g: 98, b: 98 };
 
+	const addGhostBg = mixRgb(baseBg, addFg, ADD_GHOST_BACKGROUND_MIX_RATIO);
 	const addRowBg = mixRgb(baseBg, addFg, ADD_ROW_BACKGROUND_MIX_RATIO);
+	const removeGhostBg = mixRgb(baseBg, removeFg, REMOVE_GHOST_BACKGROUND_MIX_RATIO);
 	const removeRowBg = mixRgb(baseBg, removeFg, REMOVE_ROW_BACKGROUND_MIX_RATIO);
 	const addEmphasisBg = mixRgb(baseBg, addFg, ADD_INLINE_EMPHASIS_MIX_RATIO);
 	const removeEmphasisBg = mixRgb(baseBg, removeFg, REMOVE_INLINE_EMPHASIS_MIX_RATIO);
 
 	return {
+		addGhostBgAnsi: rgbToBgAnsi(addGhostBg),
 		addRowBgAnsi: rgbToBgAnsi(addRowBg),
+		removeGhostBgAnsi: rgbToBgAnsi(removeGhostBg),
 		removeRowBgAnsi: rgbToBgAnsi(removeRowBg),
 		addEmphasisBgAnsi: rgbToBgAnsi(addEmphasisBg),
 		removeEmphasisBgAnsi: rgbToBgAnsi(removeEmphasisBg),
@@ -317,6 +338,12 @@ function renderDiffMeter(theme: Theme, additions: number, removals: number, widt
 	return `${theme.fg("dim", "[")}${addBar}${removeBar}${theme.fg("dim", "]")}`;
 }
 
+function renderDiffCount(theme: Theme, prefix: "+" | "-", count: number): string {
+	const label = `${prefix}${count}`;
+	if (count === 0) return theme.fg("dim", label);
+	return theme.fg(prefix === "+" ? "toolDiffAdded" : "toolDiffRemoved", label);
+}
+
 function sanitizeSingleLineText(value: string): string {
 	return value.replace(/\r/g, "").replace(/\n/g, "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 }
@@ -368,6 +395,34 @@ function isDiffTooLargeForSplit(diff: string): { tooLarge: boolean; reason?: str
 	return { tooLarge: false };
 }
 
+function formatRawDiffLine(line: string, theme: Theme): string {
+	const safeLine = sanitizeSingleLineText(line).replace(/\t/g, "    ");
+	if (line.startsWith("+")) return theme.fg("toolDiffAdded", safeLine);
+	if (line.startsWith("-")) return theme.fg("toolDiffRemoved", safeLine);
+	if (line.startsWith(" ")) return theme.fg("muted", safeLine);
+	return safeLine;
+}
+
+function renderRawDiffPreview(diff: string, summary: string, theme: Theme, expanded: boolean, note?: string): Text {
+	const maxLines = expanded ? MAX_RAW_DIFF_PREVIEW_LINES_EXPANDED : MAX_RAW_DIFF_PREVIEW_LINES_COLLAPSED;
+	const rawLines = diff.split("\n");
+	const renderedLines = rawLines.slice(0, maxLines).map((line) => formatRawDiffLine(line, theme));
+
+	if (rawLines.length > maxLines) {
+		renderedLines.push(theme.fg("muted", `... ${rawLines.length - maxLines} more lines`));
+	}
+
+	const lines = [summary];
+	if (note) lines.push(theme.fg("warning", note));
+	if (renderedLines.length === 0) {
+		lines.push(theme.fg("muted", "(diff is empty)"));
+	} else {
+		lines.push(...renderedLines);
+	}
+
+	return new Text(lines.join("\n"), 0, 0);
+}
+
 function stripInlineBreaksPreserveAnsi(value: string): string {
 	return value.replace(/\r/g, "").replace(/\n/g, "");
 }
@@ -402,8 +457,8 @@ function buildSplitRows(diff: string): SplitDiffRow[] {
 	const rows: SplitDiffRow[] = [];
 	let pendingLeft: DiffLine[] = [];
 	let pendingRight: DiffLine[] = [];
-	let oldCursor: number | undefined;
-	let newCursor: number | undefined;
+	let oldCursor = 1;
+	let newCursor = 1;
 
 	const flushPending = () => {
 		while (pendingLeft.length > 0 || pendingRight.length > 0) {
@@ -422,23 +477,37 @@ function buildSplitRows(diff: string): SplitDiffRow[] {
 		const parsedNum = parseLineNumber(parsed.lineNumber);
 		if (parsed.prefix === "-") {
 			const oldNum = parsedNum ?? oldCursor;
-			if (oldNum !== undefined) oldCursor = oldNum + 1;
+			oldCursor = oldNum + 1;
 			pendingLeft.push(makeDiffLine("-", oldNum, parsed.line));
 			continue;
 		}
 		if (parsed.prefix === "+") {
 			const newNum = parsedNum ?? newCursor;
-			if (newNum !== undefined) newCursor = newNum + 1;
+			newCursor = newNum + 1;
 			pendingRight.push(makeDiffLine("+", newNum, parsed.line));
 			continue;
 		}
 
 		flushPending();
 
+		const isCollapsedContextMarker = parsed.lineNumber.trim() === "" && parsed.line === "...";
+		if (isCollapsedContextMarker) {
+			rows.push({
+				kind: "context",
+				left: makeDiffLine(" ", undefined, parsed.line),
+				right: makeDiffLine(" ", undefined, parsed.line),
+			});
+			continue;
+		}
+
 		const oldNum = parsedNum ?? oldCursor;
-		const newNum = newCursor ?? oldNum;
-		if (oldNum !== undefined) oldCursor = oldNum + 1;
-		if (newNum !== undefined) newCursor = newNum + 1;
+		const skippedContextLines = Math.max(0, oldNum - oldCursor);
+		if (skippedContextLines > 0) {
+			newCursor += skippedContextLines;
+		}
+		const newNum = newCursor;
+		oldCursor = oldNum + 1;
+		newCursor = newNum + 1;
 
 		rows.push({
 			kind: "context",
@@ -491,11 +560,8 @@ class SplitDiffComponent implements Component {
 	}
 
 	private getVisualLineKind(kind: SplitDiffRow["kind"], side: "left" | "right", line?: DiffLine): CellLineKind {
-		const base = this.getCellLineKind(kind, side);
-		if ((kind === "added" || kind === "removed") && (line?.line ?? "") === "") {
-			return "context";
-		}
-		return base;
+		void line;
+		return this.getCellLineKind(kind, side);
 	}
 
 	private getNumberColor(lineKind: CellLineKind): "toolDiffRemoved" | "toolDiffAdded" | "dim" {
@@ -521,18 +587,48 @@ class SplitDiffComponent implements Component {
 			case "changed":
 				return side === "left" ? this.palette.removeRowBgAnsi : this.palette.addRowBgAnsi;
 			case "removed":
-				return side === "left" ? this.palette.removeRowBgAnsi : undefined;
+				return side === "left" ? this.palette.removeRowBgAnsi : this.palette.removeGhostBgAnsi;
 			case "added":
-				return side === "right" ? this.palette.addRowBgAnsi : undefined;
+				return side === "right" ? this.palette.addRowBgAnsi : this.palette.addGhostBgAnsi;
 			default:
 				return undefined;
 		}
 	}
 
+	private getGhostLineKind(kind: SplitDiffRow["kind"], side: "left" | "right"): CellLineKind | undefined {
+		if (kind === "added" && side === "left") return "add";
+		if (kind === "removed" && side === "right") return "remove";
+		return undefined;
+	}
+
+	private getRowSeparator(kind: SplitDiffRow["kind"]): string {
+		const separator = this.theme.fg("borderMuted", " │ ");
+		const bg =
+			kind === "added"
+				? this.palette.addGhostBgAnsi
+				: kind === "removed"
+					? this.palette.removeGhostBgAnsi
+					: undefined;
+		if (!bg) return separator;
+		return `${bg}${keepBackgroundAcrossResets(separator, bg)}${this.containerBgAnsi}`;
+	}
+
 	private blankCell(kind: SplitDiffRow["kind"], side: "left" | "right", columnWidth: number): string {
 		const lineKind = this.getCellLineKind(kind, side);
-		const markerChar = lineKind === "add" || lineKind === "remove" ? "▌" : " ";
-		const markerColor = lineKind === "add" ? "toolDiffAdded" : lineKind === "remove" ? "toolDiffRemoved" : "borderMuted";
+		const ghostLineKind = lineKind === "context" ? this.getGhostLineKind(kind, side) : undefined;
+		const markerLineKind = ghostLineKind ?? lineKind;
+		const markerChar =
+			markerLineKind === "add" || markerLineKind === "remove"
+				? ghostLineKind
+					? "▏"
+					: "▌"
+				: " ";
+		const markerColor =
+			markerLineKind === "add"
+				? "toolDiffAdded"
+				: markerLineKind === "remove"
+					? "toolDiffRemoved"
+					: "borderMuted";
 		const marker = this.theme.fg(markerColor, markerChar);
 		const lineNumber = this.theme.fg("dim", " ".repeat(this.lineNumberWidth));
 		const divider = this.theme.fg("borderMuted", " │ ");
@@ -695,13 +791,14 @@ class SplitDiffComponent implements Component {
 			const leftCellLines = this.formatCellLines(row.kind, "left", row.left, leftWidth);
 			const rightCellLines = this.formatCellLines(row.kind, "right", row.right, rightWidth);
 			const rowHeight = Math.max(leftCellLines.length, rightCellLines.length);
+			const rowSeparator = this.getRowSeparator(row.kind);
 
 			for (let i = 0; i < rowHeight; i++) {
 				const leftFallbackKind: SplitDiffRow["kind"] = row.kind === "changed" ? "context" : row.kind;
 				const rightFallbackKind: SplitDiffRow["kind"] = row.kind === "changed" ? "context" : row.kind;
 				const leftCell = leftCellLines[i] ?? this.blankCell(leftFallbackKind, "left", leftWidth);
 				const rightCell = rightCellLines[i] ?? this.blankCell(rightFallbackKind, "right", rightWidth);
-				const joined = padRenderedLineWidth(leftCell + columnSeparator + rightCell, safeWidth);
+				const joined = padRenderedLineWidth(leftCell + rowSeparator + rightCell, safeWidth);
 				lines.push(joined);
 			}
 		}
@@ -726,6 +823,25 @@ class SplitDiffComponent implements Component {
 export default function diffRendererExtension(pi: ExtensionAPI) {
 	const templateTool = getEditTool(process.cwd());
 
+	pi.on("tool_result", async (event) => {
+		if (event.toolName !== "edit" || !event.isError) return undefined;
+
+		const first = event.content[0];
+		if (first?.type === "text") {
+			const trimmed = first.text.trim();
+			if (/^error[:\s]/i.test(trimmed)) return undefined;
+
+			const normalizedText = trimmed.length > 0 ? `Error: ${first.text}` : "Error: Edit failed.";
+			return {
+				content: [{ ...first, text: normalizedText }, ...event.content.slice(1)],
+			};
+		}
+
+		return {
+			content: [{ type: "text", text: "Error: Edit failed." }, ...event.content],
+		};
+	});
+
 	pi.registerTool({
 		name: "edit",
 		label: templateTool.label,
@@ -748,34 +864,52 @@ export default function diffRendererExtension(pi: ExtensionAPI) {
 
 			const rawMessage = firstText(result.content);
 			const safeMessage = sanitizeDisplayText(rawMessage, MAX_RENDER_MESSAGE_CHARS);
-			if (rawMessage && /^error[:\s]/i.test(rawMessage.trim())) {
+			const details = result.details as Partial<EditToolDetails> | undefined;
+			const diff = typeof details?.diff === "string" ? details.diff : undefined;
+
+			if (isLikelyEditErrorMessage(rawMessage)) {
 				return new Text(theme.fg("error", safeMessage || "Error"), 0, 0);
 			}
 
-			const details = result.details as EditToolDetails | undefined;
-			if (!details?.diff) {
-				return new Text(`${theme.fg("dim", "↳")} ${theme.fg("muted", "Edit applied")}`, 0, 0);
+			if (!diff) {
+				if (isSuccessfulEditMessage(rawMessage)) {
+					const lines = [theme.fg("warning", "Edit succeeded, but no diff payload was returned.")];
+					if (safeMessage) {
+						lines.push(`${theme.fg("dim", "↳")} ${theme.fg("muted", safeMessage)}`);
+					}
+					return new Text(lines.join("\n"), 0, 0);
+				}
+
+				if (safeMessage) {
+					return new Text(theme.fg("warning", safeMessage), 0, 0);
+				}
+
+				return new Text(theme.fg("warning", "Edit result did not include a diff."), 0, 0);
 			}
 
 			const sourcePath = extractEditedPath(rawMessage);
 			const safeSourcePath = sourcePath ? sanitizeDisplayText(sourcePath, MAX_RENDER_PATH_CHARS) : undefined;
 			const language = safeSourcePath ? getLanguageFromPath(safeSourcePath) : undefined;
-			const { additions, removals } = countDiffStats(details.diff);
+			const { additions, removals } = countDiffStats(diff);
 			const meter = renderDiffMeter(theme, additions, removals);
 			const summary =
 				`${theme.fg("dim", "↳")} ${theme.fg("muted", "diff")}` +
-				` ${theme.fg("toolDiffAdded", `+${additions}`)}` +
-				` ${theme.fg("toolDiffRemoved", `-${removals}`)}` +
+				` ${renderDiffCount(theme, "+", additions)}` +
+				` ${renderDiffCount(theme, "-", removals)}` +
 				` ${theme.fg("muted", "split")}` +
 				(meter ? ` ${meter}` : "");
 
-			const splitBudget = isDiffTooLargeForSplit(details.diff);
+			const splitBudget = isDiffTooLargeForSplit(diff);
 			if (splitBudget.tooLarge) {
 				const note = splitBudget.reason ?? "diff exceeded split render budget";
-				return new Text(`${summary}\n${theme.fg("warning", "Split view skipped:")} ${theme.fg("muted", note)}`, 0, 0);
+				return renderRawDiffPreview(diff, summary, theme, expanded, `Split view skipped: ${note}`);
 			}
 
-			const rows = buildSplitRows(details.diff);
+			const rows = buildSplitRows(diff);
+			if (rows.length === 0) {
+				return renderRawDiffPreview(diff, summary, theme, expanded, "Split view unavailable; showing raw diff.");
+			}
+
 			const maxRows = expanded ? 160 : 36;
 			const split = new SplitDiffComponent(theme, rows, maxRows, language);
 
