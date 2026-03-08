@@ -9,8 +9,9 @@
     "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-scurl",
     "npm:@aliou/pi-synthetic",
-    "npm:pi-rtk",
+    "npm:pi-rtk-noemoji",
     "npm:pi-bash-trim",
+    "npm:@trq/pi-colgrep",
     {
       "source": "npm:pi-amplike",
       "extensions": [
