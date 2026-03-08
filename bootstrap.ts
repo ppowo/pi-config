@@ -11,6 +11,7 @@ const PI_DIR = join(HOME, ".pi", "agent");
 const links: Array<{ link: string; target: string }> = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
   { link: join(PI_DIR, "extensions"), target: join(REPO_DIR, "extensions") },
+  { link: join(PI_DIR, "skills"), target: join(REPO_DIR, "skills") },
   { link: join(PI_DIR, "themes"), target: join(REPO_DIR, "themes") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
 ];

@@ -2,7 +2,7 @@
 
 My personal pi agent config repo.
 
-It keeps prompts/extensions/themes in version control and bootstraps them into `~/.pi/agent`.
+It keeps prompts/extensions/skills/themes in version control and bootstraps them into `~/.pi/agent`.
 
 ## Prerequisites
 
@@ -25,6 +25,7 @@ bun run setup
 - symlinks into `~/.pi/agent`:
   - `prompts/`
   - `extensions/`
+  - `skills/`
   - `themes/`
   - `APPEND_SYSTEM.md`
 - merges overlay files into:
@@ -35,6 +36,7 @@ bun run setup
 - `bootstrap.ts` — setup/link/merge script
 - `prompts/` — prompt files
 - `extensions/` — pi extensions
+- `skills/` — pi skills
 - `themes/` — pi themes
 - `settings.json` — base pi settings overlay
 

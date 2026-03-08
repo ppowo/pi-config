@@ -1,10 +1,11 @@
-# Context Hygiene (Lightweight)
+# Context Hygiene
 
-- Keep context lean without losing accuracy.
-- Built-in `read`/`bash` tool output is capped by pi (**50KB / 2000 lines**).
-- For large files, prefer `read` with `offset` + `limit` in smaller chunks.
-- Avoid broad/unbounded command output; fetch incrementally.
-- If output is large, summarize counts first, then drill down only where needed.
-- When asking the user to run shell commands:
-  - Prefer `!!command` for exploratory/high-volume output (excluded from model context)
-  - Use `!command` only when output should be included in the next prompt context
+- Keep context lean.
+- Prefer bounded reads/commands; use offsets/limits for large files and fetch incrementally.
+- Summarize large outputs before drilling in.
+- Prefer `!!command` for exploratory/high-volume user shell output; use `!command` only when the output should enter context.
+
+# Search Tool Choice
+
+- Choose between `codespelunker` and `grep` by task: `codespelunker` for ranked structural discovery; `grep` for exact regex/literal scans, raw grep-style output, or pipelines.
+- For either tool, start narrow (path/ext/language/limit), then `read` promising files instead of dumping large search outputs.
