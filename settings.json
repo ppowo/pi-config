@@ -11,7 +11,6 @@
     "npm:@aliou/pi-synthetic",
     "npm:pi-rtk-noemoji",
     "npm:pi-bash-trim",
-    "npm:@trq/pi-colgrep",
     {
       "source": "npm:pi-amplike",
       "extensions": [
