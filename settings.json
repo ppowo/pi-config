@@ -9,7 +9,7 @@
     "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-scurl",
     "npm:@aliou/pi-synthetic",
-    "npm:pi-rtk-noemoji",
+    "npm:pi-rtk",
     "npm:pi-bash-trim",
     {
       "source": "npm:pi-amplike",
