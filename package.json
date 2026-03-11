@@ -4,10 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "setup": "bun run bootstrap.ts"
-  },
-  "engines": {
-    "bun": ">=1.0.0"
+    "setup": "node bootstrap.mjs"
   },
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "latest",

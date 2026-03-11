@@ -1,5 +1,5 @@
-#!/usr/bin/env bun
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+#!/usr/bin/env node
+import { lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,7 +8,7 @@ const HOME = homedir();
 const REPO_DIR = process.cwd();
 const PI_DIR = join(HOME, ".pi", "agent");
 
-const links: Array<{ link: string; target: string }> = [
+const links = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
   { link: join(PI_DIR, "extensions"), target: join(REPO_DIR, "extensions") },
   { link: join(PI_DIR, "skills"), target: join(REPO_DIR, "skills") },
@@ -20,8 +20,7 @@ const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
 const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction.enabled"];
 
-
-function assertSafePath(path: string) {
+function assertSafePath(path) {
   const blocked = ["/", HOME, join(HOME, ".pi"), join(HOME, ".pi", "agent")];
   if (blocked.includes(path)) {
     throw new Error(`Refusing unsafe path removal: ${path}`);
@@ -31,7 +30,7 @@ function assertSafePath(path: string) {
   }
 }
 
-async function relink(linkPath: string, targetPath: string) {
+async function relink(linkPath, targetPath) {
   assertSafePath(linkPath);
 
   await mkdir(dirname(linkPath), { recursive: true });
@@ -51,15 +50,12 @@ async function relink(linkPath: string, targetPath: string) {
   console.log(`linked ${linkPath} -> ${targetPath}`);
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
+function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function deepMerge(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...target };
+function deepMerge(target, source) {
+  const result = { ...target };
   for (const key of Object.keys(source)) {
     const sourceValue = source[key];
     const targetValue = result[key];
@@ -72,8 +68,8 @@ function deepMerge(
   return result;
 }
 
-function getPathValue(source: Record<string, unknown>, path: string[]): { found: boolean; value?: unknown } {
-  let current: unknown = source;
+function getPathValue(source, path) {
+  let current = source;
 
   for (const segment of path) {
     if (!isObject(current)) {
@@ -90,7 +86,7 @@ function getPathValue(source: Record<string, unknown>, path: string[]): { found:
   return { found: true, value: current };
 }
 
-function setPathValue(target: Record<string, unknown>, path: string[], value: unknown) {
+function setPathValue(target, path, value) {
   if (path.length === 0) {
     return;
   }
@@ -105,19 +101,19 @@ function setPathValue(target: Record<string, unknown>, path: string[], value: un
       current[segment] = {};
     }
 
-    current = current[segment] as Record<string, unknown>;
+    current = current[segment];
   }
 
   current[path[path.length - 1]] = value;
 }
 
-function deletePathValue(target: Record<string, unknown>, path: string[]) {
+function deletePathValue(target, path) {
   if (path.length === 0) {
     return;
   }
 
-  const trail: Array<{ parent: Record<string, unknown>; key: string }> = [];
-  let current: Record<string, unknown> = target;
+  const trail = [];
+  let current = target;
 
   for (let i = 0; i < path.length - 1; i++) {
     const segment = path[i];
@@ -148,9 +144,9 @@ function deletePathValue(target: Record<string, unknown>, path: string[]) {
 }
 
 async function mergeJsonOverlay(
-  overlayPath: string,
-  targetPath: string,
-  ownedKeys: string[] = [],
+  overlayPath,
+  targetPath,
+  ownedKeys = [],
   label = "settings overlay",
 ) {
   if (!existsSync(overlayPath)) {
@@ -158,16 +154,16 @@ async function mergeJsonOverlay(
     return;
   }
 
-  const overlay = JSON.parse(await readFile(overlayPath, "utf-8")) as Record<string, unknown>;
+  const overlay = JSON.parse(await readFile(overlayPath, "utf-8"));
 
-  let existing: Record<string, unknown> = {};
+  let existing = {};
   if (existsSync(targetPath)) {
     // If it's a symlink (from a previous bootstrap), remove it first
-    const stat = await import("node:fs/promises").then((m) => m.lstat(targetPath));
+    const stat = await lstat(targetPath);
     if (stat.isSymbolicLink()) {
       await rm(targetPath, { force: true });
     } else {
-      existing = JSON.parse(await readFile(targetPath, "utf-8")) as Record<string, unknown>;
+      existing = JSON.parse(await readFile(targetPath, "utf-8"));
     }
   }
 

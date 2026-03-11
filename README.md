@@ -6,7 +6,7 @@ It keeps prompts/extensions/skills/themes in version control and bootstraps them
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) (`>=1.0.0`)
+- Node.js
 - pi installed locally
 
 ## Setup
@@ -14,13 +14,13 @@ It keeps prompts/extensions/skills/themes in version control and bootstraps them
 From this repo root:
 
 ```bash
-bun install
-bun run setup
+npm install
+npm run setup
 ```
 
 ## What setup does
 
-`bun run setup` runs `bootstrap.ts`, which:
+`npm run setup` runs `bootstrap.mjs`, which:
 
 - symlinks into `~/.pi/agent`:
   - `prompts/`
@@ -33,16 +33,18 @@ bun run setup
 
 ## Repo layout
 
-- `bootstrap.ts` — setup/link/merge script
+- `bootstrap.mjs` — setup/link/merge script
 - `prompts/` — prompt files
 - `extensions/` — pi extensions
 - `skills/` — pi skills
 - `themes/` — pi themes
 - `settings.json` — base pi settings overlay
 
+The bootstrap script is plain Node.js, but pi extensions in `extensions/` can still stay TypeScript.
+
 ## Re-run / update
 
-Re-run `bun run setup` any time you change files in this repo or set up a new machine.
+Re-run `npm run setup` any time you change files in this repo or set up a new machine.
 
 ## Note
 

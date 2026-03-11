@@ -41,7 +41,11 @@ build/Release
 node_modules/
 jspm_packages/
 
-# Bun lockfiles (this repo intentionally tracks no lockfiles)
+# Lockfiles (this repo intentionally tracks no lockfiles)
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
+pnpm-lock.yaml
 bun.lock
 bun.lockb
 
