@@ -14,6 +14,7 @@ const links = [
   { link: join(PI_DIR, "skills"), target: join(REPO_DIR, "skills") },
   { link: join(PI_DIR, "themes"), target: join(REPO_DIR, "themes") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
+  { link: join(PI_DIR, "models.json"), target: join(REPO_DIR, "models.json") },
 ];
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
