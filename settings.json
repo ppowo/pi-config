@@ -1,5 +1,6 @@
 {
   "theme": "solarized-light",
+  "spinnerVerbs": "random",
   "packages": [
     "npm:@aaronmaturen/pi-context7",
     "npm:@marckrenn/pi-sub-bar",
@@ -12,6 +13,7 @@
     "npm:pi-rtk",
     "npm:pi-bash-trim",
     "npm:@robhowley/spinner-verbs",
+    "npm:pi-manage-todo-list",
     {
       "source": "npm:pi-amplike",
       "extensions": [
