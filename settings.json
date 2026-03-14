@@ -11,6 +11,7 @@
     "npm:@aliou/pi-synthetic",
     "npm:pi-rtk",
     "npm:pi-bash-trim",
+    "npm:@robhowley/spinner-verbs",
     {
       "source": "npm:pi-amplike",
       "extensions": [
