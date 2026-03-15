@@ -3,9 +3,10 @@ import { lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOME = homedir();
-const REPO_DIR = process.cwd();
+const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
 
 const links = [
@@ -19,7 +20,7 @@ const links = [
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
-const PI_SETTINGS_OWNED_KEYS = ["theme", "packages", "compaction.enabled"];
+const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json");
 
 function assertSafePath(path) {
   const blocked = ["/", HOME, join(HOME, ".pi"), join(HOME, ".pi", "agent")];
@@ -144,33 +145,92 @@ function deletePathValue(target, path) {
   }
 }
 
+function collectLeafPaths(value, prefix = []) {
+  if (!isObject(value)) {
+    return prefix.length > 0 ? [prefix.join(".")] : [];
+  }
+
+  const paths = [];
+  for (const key of Object.keys(value)) {
+    paths.push(...collectLeafPaths(value[key], [...prefix, key]));
+  }
+  return paths;
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+async function readJsonFile(path, fallback) {
+  if (!existsSync(path)) {
+    return fallback;
+  }
+
+  return JSON.parse(await readFile(path, "utf-8"));
+}
+
+async function loadExistingJson(targetPath) {
+  if (!existsSync(targetPath)) {
+    return {};
+  }
+
+  const stat = await lstat(targetPath);
+  if (stat.isSymbolicLink()) {
+    await rm(targetPath, { force: true });
+    return {};
+  }
+
+  return JSON.parse(await readFile(targetPath, "utf-8"));
+}
+
 async function mergeJsonOverlay(
   overlayPath,
   targetPath,
-  ownedKeys = [],
+  ownedStatePath,
   label = "settings overlay",
 ) {
-  if (!existsSync(overlayPath)) {
-    console.log(`skip ${label}: overlay not found at ${overlayPath}`);
+  const overlayExists = existsSync(overlayPath);
+  const previousOwnedPaths = uniqueSorted(await readJsonFile(ownedStatePath, []));
+  const existing = await loadExistingJson(targetPath);
+
+  if (!overlayExists) {
+    if (previousOwnedPaths.length === 0) {
+      console.log(`skip ${label}: overlay not found at ${overlayPath}`);
+      return;
+    }
+
+    const cleaned = { ...existing };
+    for (const key of previousOwnedPaths) {
+      deletePathValue(cleaned, key.split(".").filter(Boolean));
+    }
+
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, JSON.stringify(cleaned, null, 2) + "\n");
+    await rm(ownedStatePath, { force: true });
+    console.log(`cleared ${label} managed keys from ${targetPath}`);
     return;
   }
 
-  const overlay = JSON.parse(await readFile(overlayPath, "utf-8"));
-
-  let existing = {};
-  if (existsSync(targetPath)) {
-    // If it's a symlink (from a previous bootstrap), remove it first
-    const stat = await lstat(targetPath);
-    if (stat.isSymbolicLink()) {
-      await rm(targetPath, { force: true });
-    } else {
-      existing = JSON.parse(await readFile(targetPath, "utf-8"));
-    }
+  const overlay = await readJsonFile(overlayPath, {});
+  if (!isObject(overlay)) {
+    throw new Error(`${label} must be a JSON object: ${overlayPath}`);
   }
+
+  // Track repo-managed settings by leaf path.
+  //
+  // Why leaf paths instead of whole top-level keys?
+  // - `theme`, `spinnerVerbs`, and `packages` are fully owned because they are leaves.
+  // - Nested settings such as `compaction.enabled` are owned precisely, so unrelated
+  //   local keys like `compaction.reserveTokens` stay intact.
+  // - A small state file remembers previously owned leaf paths so removing a repo-
+  //   managed key from settings.json also removes it from ~/.pi/agent/settings.json
+  //   on the next bootstrap run.
+  const currentOwnedPaths = uniqueSorted(collectLeafPaths(overlay));
+  const ownedPathsToApply = uniqueSorted([...previousOwnedPaths, ...currentOwnedPaths]);
 
   const merged = deepMerge(existing, overlay);
 
-  for (const key of ownedKeys) {
+  for (const key of ownedPathsToApply) {
     const path = key.split(".").filter(Boolean);
     const { found, value } = getPathValue(overlay, path);
 
@@ -181,7 +241,15 @@ async function mergeJsonOverlay(
     }
   }
 
+  await mkdir(dirname(targetPath), { recursive: true });
   await writeFile(targetPath, JSON.stringify(merged, null, 2) + "\n");
+
+  if (currentOwnedPaths.length > 0) {
+    await writeFile(ownedStatePath, JSON.stringify(currentOwnedPaths, null, 2) + "\n");
+  } else {
+    await rm(ownedStatePath, { force: true });
+  }
+
   console.log(`merged ${label} into ${targetPath}`);
 }
 
@@ -194,8 +262,8 @@ async function main() {
     await relink(link, target);
   }
 
-  // Merge settings overlay into pi's settings (instead of symlinking)
-  await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_KEYS, "pi settings overlay");
+  // Merge settings overlay into pi's settings (instead of symlinking).
+  await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
 
   console.log("bootstrap complete");
 }

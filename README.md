@@ -28,6 +28,7 @@ npm run setup
   - `skills/`
   - `themes/`
   - `APPEND_SYSTEM.md`
+  - `models.json`
 - merges overlay files into:
   - `~/.pi/agent/settings.json` (from `settings.json`)
 
@@ -38,7 +39,8 @@ npm run setup
 - `extensions/` — pi extensions
 - `skills/` — pi skills
 - `themes/` — pi themes
-- `settings.json` — base pi settings overlay
+- `settings.json` — repo-managed pi settings overlay
+- `models.json` — custom provider/model definitions symlinked into pi
 
 The bootstrap script is plain Node.js, but pi extensions in `extensions/` can still stay TypeScript.
 
@@ -46,6 +48,8 @@ The bootstrap script is plain Node.js, but pi extensions in `extensions/` can st
 
 Re-run `npm run setup` any time you change files in this repo or set up a new machine.
 
+`bootstrap.mjs` resolves the repo from the script location, so it works even if you invoke it outside the repo root.
+
 ## Note
 
-This repo intentionally tracks only certain keys in merged settings (`theme`, `packages`, `compaction.enabled`). Other keys in your local pi settings are preserved.
+`settings.json` is applied as a repo-managed overlay. Every leaf path present there is owned by this repo (for example `theme`, `spinnerVerbs`, `packages`, and `compaction.enabled`). Other local pi settings are preserved, and if a repo-managed key is later removed from `settings.json`, re-running setup removes it from `~/.pi/agent/settings.json` too.
