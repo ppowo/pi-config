@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-import { lstat, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const HOME = homedir();
+const HOME = resolve(homedir());
 const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
+const EXTENSIONS_DIR = join(REPO_DIR, "extensions");
+const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const links = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
@@ -21,25 +25,40 @@ const links = [
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
 const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json");
+const LOCAL_PACKAGES_STATE = join(PI_DIR, ".managed-local-packages.json");
 
-function assertSafePath(path) {
-  const blocked = ["/", HOME, join(HOME, ".pi"), join(HOME, ".pi", "agent")];
-  if (blocked.includes(path)) {
+function normalizeRelPath(path) {
+  return path.replaceAll("\\", "/");
+}
+
+function repoPathFromRel(relPath) {
+  return join(REPO_DIR, ...relPath.split("/"));
+}
+
+function pathIsInside(root, targetPath) {
+  const rel = relative(root, targetPath);
+  return rel === "" || (!rel.startsWith("..") && rel !== ".." && !isAbsolute(rel));
+}
+
+function assertSafePath(path, allowedRoots = [HOME]) {
+  const resolvedPath = resolve(path);
+  const blocked = [resolve("/"), HOME, join(HOME, ".pi"), PI_DIR, REPO_DIR, EXTENSIONS_DIR].map((value) => resolve(value));
+
+  if (blocked.includes(resolvedPath)) {
     throw new Error(`Refusing unsafe path removal: ${path}`);
   }
-  if (!path.startsWith(HOME + "/")) {
-    throw new Error(`Refusing removal outside home directory: ${path}`);
+
+  if (!allowedRoots.some((root) => pathIsInside(resolve(root), resolvedPath))) {
+    throw new Error(`Refusing removal outside managed roots: ${path}`);
   }
 }
 
 async function relink(linkPath, targetPath) {
-  assertSafePath(linkPath);
+  assertSafePath(linkPath, [HOME]);
 
   await mkdir(dirname(linkPath), { recursive: true });
 
-  // Ensure target directory exists only when target is a directory path.
-  // For files (e.g. settings.json), parent directory is enough.
-  const targetLooksLikeFile = /\.[^/]+$/.test(targetPath);
+  const targetLooksLikeFile = /\.[^/\\]+$/.test(targetPath);
   if (targetLooksLikeFile) {
     await mkdir(dirname(targetPath), { recursive: true });
   } else {
@@ -47,7 +66,19 @@ async function relink(linkPath, targetPath) {
   }
 
   await rm(linkPath, { recursive: true, force: true });
-  await symlink(targetPath, linkPath);
+
+  if (process.platform === "win32" && targetLooksLikeFile) {
+    await copyFile(targetPath, linkPath);
+    console.log(`copied ${targetPath} -> ${linkPath}`);
+    return;
+  }
+
+  const symlinkTarget = process.platform === "win32" ? resolve(targetPath) : targetPath;
+  const symlinkType = process.platform === "win32"
+    ? (targetLooksLikeFile ? "file" : "junction")
+    : (targetLooksLikeFile ? "file" : "dir");
+
+  await symlink(symlinkTarget, linkPath, symlinkType);
 
   console.log(`linked ${linkPath} -> ${targetPath}`);
 }
@@ -131,7 +162,6 @@ function deletePathValue(target, path) {
 
   delete current[path[path.length - 1]];
 
-  // Remove empty containers left behind by nested deletes.
   for (let i = trail.length - 1; i >= 0; i--) {
     const { parent, key } = trail[i];
     const child = parent[key];
@@ -216,15 +246,6 @@ async function mergeJsonOverlay(
     throw new Error(`${label} must be a JSON object: ${overlayPath}`);
   }
 
-  // Track repo-managed settings by leaf path.
-  //
-  // Why leaf paths instead of whole top-level keys?
-  // - `theme`, `spinnerVerbs`, and `packages` are fully owned because they are leaves.
-  // - Nested settings such as `compaction.enabled` are owned precisely, so unrelated
-  //   local keys like `compaction.reserveTokens` stay intact.
-  // - A small state file remembers previously owned leaf paths so removing a repo-
-  //   managed key from settings.json also removes it from ~/.pi/agent/settings.json
-  //   on the next bootstrap run.
   const currentOwnedPaths = uniqueSorted(collectLeafPaths(overlay));
   const ownedPathsToApply = uniqueSorted([...previousOwnedPaths, ...currentOwnedPaths]);
 
@@ -253,6 +274,159 @@ async function mergeJsonOverlay(
   console.log(`merged ${label} into ${targetPath}`);
 }
 
+function createLocalPackagesState(packages = {}) {
+  return { packages };
+}
+
+async function readLocalPackagesState() {
+  const raw = await readJsonFile(LOCAL_PACKAGES_STATE, createLocalPackagesState());
+  if (!isObject(raw) || !isObject(raw.packages)) {
+    return createLocalPackagesState();
+  }
+
+  const packages = {};
+  for (const [relPath, meta] of Object.entries(raw.packages)) {
+    if (isObject(meta) && typeof meta.fingerprint === "string") {
+      packages[normalizeRelPath(relPath)] = { fingerprint: meta.fingerprint };
+    }
+  }
+  return createLocalPackagesState(packages);
+}
+
+async function writeLocalPackagesState(state) {
+  await mkdir(dirname(LOCAL_PACKAGES_STATE), { recursive: true });
+  await writeFile(LOCAL_PACKAGES_STATE, JSON.stringify(state, null, 2) + "\n");
+}
+
+async function discoverLocalExtensionPackages() {
+  if (!existsSync(EXTENSIONS_DIR)) {
+    return [];
+  }
+
+  const entries = await readdir(EXTENSIONS_DIR, { withFileTypes: true });
+  const packages = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const dir = join(EXTENSIONS_DIR, entry.name);
+    const packageJsonPath = join(dir, "package.json");
+    if (!existsSync(packageJsonPath)) continue;
+
+    packages.push({
+      dir,
+      relPath: normalizeRelPath(relative(REPO_DIR, dir)),
+      packageJsonPath,
+      nodeModulesPath: join(dir, "node_modules"),
+    });
+  }
+
+  return packages.sort((a, b) => a.relPath.localeCompare(b.relPath));
+}
+
+async function fingerprintLocalPackage(pkg) {
+  const hash = createHash("sha256");
+  hash.update(await readFile(pkg.packageJsonPath, "utf-8"));
+  return hash.digest("hex");
+}
+
+async function run(command, args, cwd) {
+  await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: "inherit",
+      shell: false,
+    });
+
+    child.on("error", rejectPromise);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolvePromise();
+      } else {
+        rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd} with exit code ${code}`));
+      }
+    });
+  });
+}
+
+async function installLocalPackageDependencies(pkg, previousFingerprint) {
+  const fingerprintBeforeInstall = await fingerprintLocalPackage(pkg);
+  const hasNodeModules = existsSync(pkg.nodeModulesPath);
+
+  if (hasNodeModules && previousFingerprint === fingerprintBeforeInstall) {
+    console.log(`local package unchanged, skipping install: ${pkg.relPath}`);
+    return { relPath: pkg.relPath, fingerprint: fingerprintBeforeInstall };
+  }
+
+  const installArgs = ["install", "--no-audit", "--no-fund", "--package-lock=false"];
+  const action = hasNodeModules ? "updating" : "installing";
+
+  console.log(`${action} local package dependencies: ${pkg.relPath}`);
+  await run(NPM_COMMAND, installArgs, pkg.dir);
+
+  const fingerprintAfterInstall = await fingerprintLocalPackage(pkg);
+  return { relPath: pkg.relPath, fingerprint: fingerprintAfterInstall };
+}
+
+async function cleanupRemovedLocalPackage(relPath) {
+  const dir = repoPathFromRel(relPath);
+  if (!existsSync(dir)) {
+    console.log(`removed stale local package state: ${relPath}`);
+    return;
+  }
+
+  const nodeModulesPath = join(dir, "node_modules");
+  if (existsSync(nodeModulesPath)) {
+    assertSafePath(nodeModulesPath, [REPO_DIR]);
+    await rm(nodeModulesPath, { recursive: true, force: true });
+    console.log(`removed stale node_modules for ${relPath}`);
+  }
+
+  const remainingEntries = existsSync(dir)
+    ? (await readdir(dir)).filter((name) => name !== ".DS_Store")
+    : [];
+
+  if (remainingEntries.length === 0) {
+    assertSafePath(dir, [REPO_DIR]);
+    await rm(dir, { recursive: true, force: true });
+    console.log(`removed empty stale package directory: ${relPath}`);
+    return;
+  }
+
+  console.log(`left stale package directory intact (${relPath}); remaining entries: ${remainingEntries.join(", ")}`);
+}
+
+async function syncLocalExtensionPackages() {
+  const packages = await discoverLocalExtensionPackages();
+  const previousState = await readLocalPackagesState();
+  const nextPackages = {};
+
+  for (const pkg of packages) {
+    const previousFingerprint = previousState.packages[pkg.relPath]?.fingerprint;
+    const record = await installLocalPackageDependencies(pkg, previousFingerprint);
+    nextPackages[record.relPath] = { fingerprint: record.fingerprint };
+  }
+
+  const previousPaths = new Set(Object.keys(previousState.packages));
+  const currentPaths = new Set(packages.map((pkg) => pkg.relPath));
+  const removedPaths = [...previousPaths]
+    .filter((relPath) => !currentPaths.has(relPath))
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const relPath of removedPaths) {
+    await cleanupRemovedLocalPackage(relPath);
+  }
+
+  if (Object.keys(nextPackages).length === 0) {
+    await rm(LOCAL_PACKAGES_STATE, { force: true });
+    console.log("local extension package sync complete (no managed packages)");
+    return;
+  }
+
+  await writeLocalPackagesState(createLocalPackagesState(nextPackages));
+  console.log(`local extension package sync complete (${Object.keys(nextPackages).length} managed package(s))`);
+}
+
 async function main() {
   if (!existsSync(PI_DIR)) {
     await mkdir(PI_DIR, { recursive: true });
@@ -262,8 +436,8 @@ async function main() {
     await relink(link, target);
   }
 
-  // Merge settings overlay into pi's settings (instead of symlinking).
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
+  await syncLocalExtensionPackages();
 
   console.log("bootstrap complete");
 }

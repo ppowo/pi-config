@@ -1,0 +1,14 @@
+{
+  "name": "pi-tiny-dep-test",
+  "private": true,
+  "description": "Placeholder extension-local package used to validate bootstrap-managed npm dependencies.",
+  "type": "module",
+  "dependencies": {
+    "ms": "2.1.3"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
