@@ -4,8 +4,8 @@
   "description": "Firefox DevTools MCP bridge extension for pi.",
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.27.1",
-    "@padenot/firefox-devtools-mcp": "0.7.4"
+    "@modelcontextprotocol/sdk": "latest",
+    "@padenot/firefox-devtools-mcp": "latest"
   },
   "pi": {
     "extensions": [
