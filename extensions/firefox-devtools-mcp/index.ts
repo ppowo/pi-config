@@ -3,17 +3,17 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Type } from "@sinclair/typebox";
-import { accessSync, existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { accessSync, existsSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
-
-const require = createRequire(import.meta.url);
+import { fileURLToPath } from "node:url";
 
 const EXTENSION_NAME = "firefox-devtools-mcp";
 const DEFAULT_TOOL_PREFIX = "ffx";
 const DEFAULT_TOOL_TIMEOUT_MS = 180_000;
 const DEFAULT_MAX_TOTAL_TIMEOUT_MS = 900_000;
 const DEFAULT_SERVER_NAME = "@padenot/firefox-devtools-mcp";
+const ATTACH_ONLY_ENTRY_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "attach-only-entry.mjs");
+const BLOCKED_MCP_TOOL_NAMES = new Set(["restart_firefox"]);
 
 const FIREFOX_PATH_BINARY_CANDIDATES = [
 	"firefox-developer-edition",
@@ -129,25 +129,8 @@ function ensureReadable(path: string, label: string) {
 	}
 }
 
-function readPackageJson(path: string): Record<string, unknown> {
-	const raw = readFileSync(path, "utf-8");
-	const parsed = JSON.parse(raw) as unknown;
-	if (!isRecord(parsed)) {
-		throw new Error(`Invalid package.json at ${path}`);
-	}
-	return parsed;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-	if (!value) return fallback;
-	const normalized = value.trim().toLowerCase();
-	if (["1", "true", "yes", "on"].includes(normalized)) return true;
-	if (["0", "false", "no", "off"].includes(normalized)) return false;
-	return fallback;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -211,23 +194,6 @@ function sanitizeSegment(value: string | undefined, fallback: string): string {
 
 function toolPrefix(): string {
 	return sanitizeSegment(process.env.FIREFOX_MCP_TOOL_PREFIX, DEFAULT_TOOL_PREFIX);
-}
-
-function resolveServerEntryFromPackage(): string {
-	let packageJsonPath = "";
-	try {
-		packageJsonPath = require.resolve(`${DEFAULT_SERVER_NAME}/package.json`);
-	} catch {
-		throw new Error(
-			`Cannot resolve ${DEFAULT_SERVER_NAME}. Run \`node bootstrap.mjs\` (or \`npm install\` in extensions/firefox-devtools-mcp) to install the local extension dependencies.`,
-		);
-	}
-
-	const packageJson = readPackageJson(packageJsonPath);
-	const main = typeof packageJson.main === "string" && packageJson.main.trim().length > 0 ? packageJson.main.trim() : "dist/index.js";
-	const entryPath = resolve(dirname(packageJsonPath), main);
-	ensureReadable(entryPath, `${DEFAULT_SERVER_NAME} entry`);
-	return entryPath;
 }
 
 function pushUnique(list: string[], value: string | undefined) {
@@ -330,18 +296,9 @@ function resolveFirefoxPath(): string | undefined {
 function buildDefaultServerArgs(): string[] {
 	const args: string[] = [];
 
-	if (parseBoolean(process.env.FIREFOX_MCP_HEADLESS, true)) {
-		args.push("--headless");
-	}
-
 	const firefoxPath = resolveFirefoxPath();
 	if (firefoxPath) {
 		args.push("--firefox-path", firefoxPath);
-	}
-
-	const startUrl = process.env.FIREFOX_MCP_START_URL?.trim();
-	if (startUrl) {
-		args.push("--start-url", startUrl);
 	}
 
 	const extraArgs = parseArgList(process.env.FIREFOX_MCP_EXTRA_ARGS);
@@ -353,22 +310,9 @@ function buildDefaultServerArgs(): string[] {
 }
 
 function buildLaunchConfig(cwd: string): LaunchConfig {
-	const overrideCommand = process.env.FIREFOX_MCP_COMMAND?.trim();
 	const launchCwd = process.env.FIREFOX_MCP_CWD?.trim() || cwd;
-
-	if (overrideCommand) {
-		const overrideArgs = parseArgList(process.env.FIREFOX_MCP_ARGS) ?? [];
-		return {
-			mode: "override",
-			command: overrideCommand,
-			args: overrideArgs,
-			cwd: launchCwd,
-		};
-	}
-
-	const entryOverride = process.env.FIREFOX_MCP_ENTRY?.trim();
-	const entryPath = entryOverride ? resolve(entryOverride) : resolveServerEntryFromPackage();
-	ensureReadable(entryPath, "Firefox MCP entry");
+	const entryPath = ATTACH_ONLY_ENTRY_PATH;
+	ensureReadable(entryPath, "Firefox MCP attach-only entry");
 
 	const argsOverride = parseArgList(process.env.FIREFOX_MCP_ARGS);
 	const serverArgs = argsOverride ?? buildDefaultServerArgs();
@@ -748,6 +692,10 @@ async function syncTools(pi: ExtensionAPI, tools: McpToolInfo[]) {
 	const availableNow = new Set<string>();
 
 	for (const tool of tools) {
+		if (BLOCKED_MCP_TOOL_NAMES.has(tool.name)) {
+			continue;
+		}
+
 		const piName = getOrCreatePiToolName(tool.name);
 		const meta: BridgeToolMeta = {
 			mcpName: tool.name,
