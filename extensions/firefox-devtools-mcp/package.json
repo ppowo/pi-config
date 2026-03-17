@@ -1,0 +1,15 @@
+{
+  "name": "pi-firefox-devtools-mcp",
+  "private": true,
+  "description": "Firefox DevTools MCP bridge extension for pi.",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "@padenot/firefox-devtools-mcp": "0.7.4"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
