@@ -13,7 +13,6 @@
     "npm:pi-rtk",
     "npm:pi-bash-trim",
     "npm:@robhowley/spinner-verbs",
-    "npm:@tintinweb/pi-tasks",
     {
       "source": "npm:pi-amplike",
       "extensions": [
