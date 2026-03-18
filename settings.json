@@ -2,17 +2,15 @@
   "theme": "solarized-light",
   "spinnerVerbs": "random",
   "packages": [
-    "npm:@aaronmaturen/pi-context7",
-    "npm:@marckrenn/pi-sub-bar",
-    "npm:pi-read-map",
-    "npm:pi-agentic-compaction",
-    "npm:@pborck/pi-de",
-    "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-scurl",
+    "npm:@pborck/pi-de",
     "npm:@aliou/pi-synthetic",
-    "npm:pi-rtk",
-    "npm:pi-bash-trim",
+    "npm:@marckrenn/pi-sub-bar",
+    "npm:pi-agentic-compaction",
+    "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
+    "git:github.com/ghoseb/pi-askuserquestion",
+    "git:github.com/coctostan/pi-hashline-readmap",
     {
       "source": "npm:pi-amplike",
       "extensions": [
