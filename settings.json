@@ -11,6 +11,7 @@
     "npm:@robhowley/spinner-verbs",
     "git:github.com/ghoseb/pi-askuserquestion",
     "git:github.com/coctostan/pi-hashline-readmap",
+    "npm:pi-bash-trim",
     {
       "source": "npm:pi-amplike",
       "extensions": [
