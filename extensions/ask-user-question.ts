@@ -16,12 +16,19 @@ import { type Static, Type } from "@sinclair/typebox";
 const TOOL_NAME = "ask_user_question";
 const TAB_HEADER_MAX_WIDTH = 12;
 const OTHER_OPTION_LABEL = "Type your own answer...";
+const REDACTED_FREE_TEXT_ANSWER = "(free-text answer captured)";
 
 const OptionSchema = Type.Object({
   label: Type.String({
     description:
-      "Display label shown to the user and returned as the answer value",
+      "Display label shown to the user and returned as the answer text",
   }),
+  value: Type.Optional(
+    Type.String({
+      description:
+        "Optional stable machine value for this option. Defaults to the label when omitted.",
+    }),
+  ),
   description: Type.Optional(
     Type.String({
       description: "Optional clarifying text shown below the label",
@@ -30,6 +37,12 @@ const OptionSchema = Type.Object({
 });
 
 const QuestionSchema = Type.Object({
+  id: Type.Optional(
+    Type.String({
+      description:
+        "Optional stable question identifier used as the key in result answer maps",
+    }),
+  ),
   question: Type.String({
     description: "Full question text displayed to the user",
   }),
@@ -46,6 +59,25 @@ const QuestionSchema = Type.Object({
     description:
       "When true the user may select multiple options. Answers are joined with ', '.",
   }),
+  required: Type.Optional(
+    Type.Boolean({
+      description: "When false the question can be left unanswered",
+    }),
+  ),
+  minSelections: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "Minimum number of selections required for multiSelect questions. Defaults to 1 when required, otherwise 0.",
+    }),
+  ),
+  maxSelections: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "Maximum number of selections allowed for multiSelect questions.",
+    }),
+  ),
 });
 
 const InputSchema = Type.Object({
@@ -54,22 +86,77 @@ const InputSchema = Type.Object({
     maxItems: 4,
     description: "1 to 4 questions to ask the user",
   }),
+  echoFreeTextInContent: Type.Optional(
+    Type.Boolean({
+      description:
+        "When true, free-text answers are echoed in tool content/render output. Defaults to false.",
+    }),
+  ),
 });
 
 type Option = Static<typeof OptionSchema>;
 type Question = Static<typeof QuestionSchema>;
+type Input = Static<typeof InputSchema>;
 
 const ResultSchema = Type.Object({
   questions: Type.Array(QuestionSchema),
   answers: Type.Record(Type.String(), Type.String()),
+  displayAnswers: Type.Record(Type.String(), Type.String()),
+  answerValues: Type.Record(Type.String(), Type.String()),
+  containsFreeText: Type.Record(Type.String(), Type.Boolean()),
   cancelled: Type.Boolean(),
 });
 
 type Result = Static<typeof ResultSchema>;
 
-function cancelledResult(questions: Question[]): Result {
-  return { questions, answers: {}, cancelled: true };
+function questionKey(question: Question): string {
+  const id = question.id?.trim();
+  return id && id.length > 0 ? id : question.question;
 }
+
+function questionIsRequired(question: Question): boolean {
+  return question.required !== false;
+}
+
+function cancelledResult(questions: Question[]): Result {
+  const containsFreeText: Record<string, boolean> = {};
+
+  for (const question of questions) {
+    containsFreeText[questionKey(question)] = false;
+  }
+
+  return {
+    questions,
+    answers: {},
+    displayAnswers: {},
+    answerValues: {},
+    containsFreeText,
+    cancelled: true,
+  };
+}
+
+function buildDisplayAnswers(
+  result: Pick<Result, "questions" | "answers" | "containsFreeText">,
+  echoFreeTextInContent: boolean,
+): Record<string, string> {
+  const displayAnswers: Record<string, string> = {};
+
+  for (const question of result.questions) {
+    const key = questionKey(question);
+    const answer = result.answers[key];
+    if (answer === undefined) {
+      continue;
+    }
+
+    displayAnswers[key] =
+      !echoFreeTextInContent && result.containsFreeText[key]
+        ? REDACTED_FREE_TEXT_ANSWER
+        : answer;
+  }
+
+  return displayAnswers;
+}
+
 interface TUILike {
   requestRender(): void;
 }
@@ -92,12 +179,12 @@ class AskUserQuestionComponent implements Component {
   private done: (result: Result | null) => void;
 
   private states: QuestionState[];
-  private activeTab: number = 0;
+  private activeTab = 0;
   private editor: Editor;
 
   private cachedWidth?: number;
   private cachedLines?: string[];
-  private resolved: boolean = false;
+  private resolved = false;
 
   constructor(
     questions: Question[],
@@ -110,11 +197,11 @@ class AskUserQuestionComponent implements Component {
     this.theme = theme;
     this.done = done;
 
-    this.states = questions.map(() => ({
+    this.states = questions.map((question) => ({
       cursorIndex: 0,
       selectedIndex: null,
       selectedIndices: new Set<number>(),
-      confirmed: false,
+      confirmed: !questionIsRequired(question),
       freeTextValue: null,
       inEditMode: false,
     }));
@@ -140,14 +227,91 @@ class AskUserQuestionComponent implements Component {
   }
 
   private allOptions(q: Question): DisplayOption[] {
-    return [
-      ...q.options,
-      { label: OTHER_OPTION_LABEL, isOther: true as const },
-    ];
+    return [...q.options, { label: OTHER_OPTION_LABEL, isOther: true as const }];
   }
 
-  private allConfirmed(): boolean {
-    return this.states.every((s) => s.confirmed);
+  private hasAnswer(q: Question, state: QuestionState): boolean {
+    if (q.multiSelect) {
+      return state.selectedIndices.size > 0 || state.freeTextValue !== null;
+    }
+
+    return state.selectedIndex !== null || state.freeTextValue !== null;
+  }
+
+  private selectionBounds(q: Question): { min: number; max: number | null } {
+    if (!q.multiSelect) {
+      return { min: 0, max: null };
+    }
+
+    const required = questionIsRequired(q);
+    const min = Math.max(0, q.minSelections ?? (required ? 1 : 0));
+    const maxInput = q.maxSelections;
+    const max = typeof maxInput === "number" ? Math.max(min, maxInput) : null;
+
+    return { min, max };
+  }
+
+  private selectionCount(q: Question, state: QuestionState): number {
+    if (!q.multiSelect) {
+      return this.hasAnswer(q, state) ? 1 : 0;
+    }
+
+    let count = state.selectedIndices.size;
+    if (state.freeTextValue !== null) {
+      count += 1;
+    }
+    return count;
+  }
+
+  private getValidationError(q: Question, state: QuestionState): string | null {
+    if (!q.multiSelect) {
+      if (questionIsRequired(q) && !this.hasAnswer(q, state)) {
+        return "answer required";
+      }
+      return null;
+    }
+
+    const { min, max } = this.selectionBounds(q);
+    const count = this.selectionCount(q, state);
+
+    if (count < min) {
+      return min === 1
+        ? "select at least 1 option"
+        : `select at least ${min} options`;
+    }
+
+    if (max !== null && count > max) {
+      return max === 1
+        ? "select no more than 1 option"
+        : `select no more than ${max} options`;
+    }
+
+    return null;
+  }
+
+  private isQuestionSatisfied(index: number): boolean {
+    const q = this.questions[index];
+    const state = this.states[index];
+    const hasAnswer = this.hasAnswer(q, state);
+
+    if (!hasAnswer && !questionIsRequired(q)) {
+      return true;
+    }
+
+    return state.confirmed && this.getValidationError(q, state) === null;
+  }
+
+  private allReadyToSubmit(): boolean {
+    return this.questions.every((_, i) => this.isQuestionSatisfied(i));
+  }
+
+  private markStateDirty(q: Question, state: QuestionState): void {
+    if (!this.hasAnswer(q, state) && !questionIsRequired(q)) {
+      state.confirmed = true;
+      return;
+    }
+
+    state.confirmed = false;
   }
 
   private get isSingle(): boolean {
@@ -209,7 +373,6 @@ class AskUserQuestionComponent implements Component {
 
     for (let i = 0; i < this.questions.length; i++) {
       const q = this.questions[i];
-      const s = this.states[i];
       const isActive = i === this.activeTab;
       const header = truncateToWidth(q.header, TAB_HEADER_MAX_WIDTH);
       const label = ` ${header} `;
@@ -217,7 +380,7 @@ class AskUserQuestionComponent implements Component {
       let styled: string;
       if (isActive) {
         styled = t.bg("selectedBg", t.fg("text", label));
-      } else if (s.confirmed) {
+      } else if (this.isQuestionSatisfied(i)) {
         styled = t.fg("success", ` ■${header} `);
       } else {
         styled = t.fg("muted", `  ${header} `);
@@ -230,7 +393,7 @@ class AskUserQuestionComponent implements Component {
     let submitStyled: string;
     if (isSubmitActive) {
       submitStyled = t.bg("selectedBg", t.fg("text", submitLabel));
-    } else if (this.allConfirmed()) {
+    } else if (this.allReadyToSubmit()) {
       submitStyled = t.fg("success", submitLabel);
     } else {
       submitStyled = t.fg("dim", submitLabel);
@@ -316,6 +479,14 @@ class AskUserQuestionComponent implements Component {
 
     add("");
 
+    if (!state.inEditMode) {
+      const validationError = this.getValidationError(q, state);
+      if (validationError !== null && (state.confirmed || this.hasAnswer(q, state))) {
+        add(t.fg("warning", ` ${validationError}`));
+        add("");
+      }
+    }
+
     if (state.inEditMode) {
       add(t.fg("dim", " Enter submit · Esc back"));
     } else {
@@ -335,7 +506,7 @@ class AskUserQuestionComponent implements Component {
 
   private renderSubmitTab(add: (s: string) => void): void {
     const t = this.theme;
-    const allDone = this.allConfirmed();
+    const allDone = this.allReadyToSubmit();
 
     add(
       allDone
@@ -364,8 +535,16 @@ class AskUserQuestionComponent implements Component {
       add(t.fg("success", " Press Enter to submit"));
     } else {
       const missing = this.questions
-        .filter((_, i) => !this.states[i].confirmed)
-        .map((q) => truncateToWidth(q.header, TAB_HEADER_MAX_WIDTH))
+        .map((q, i) => {
+          if (this.isQuestionSatisfied(i)) {
+            return null;
+          }
+
+          const reason = this.getValidationError(q, this.states[i]);
+          const header = truncateToWidth(q.header, TAB_HEADER_MAX_WIDTH);
+          return reason === null ? header : `${header} (${reason})`;
+        })
+        .filter((value): value is string => value !== null)
         .join(", ");
       add(t.fg("warning", ` Still needed: ${missing}`));
     }
@@ -373,19 +552,58 @@ class AskUserQuestionComponent implements Component {
     add(t.fg("dim", " ←→ switch tabs · Esc cancel"));
   }
 
+  private orderedSelectedIndices(state: QuestionState): number[] {
+    return [...state.selectedIndices].sort((a, b) => a - b);
+  }
+
   private getAnswerText(q: Question, state: QuestionState): string | null {
     if (!state.confirmed) return null;
+    if (!this.hasAnswer(q, state)) return null;
 
     if (q.multiSelect) {
-      const labels = [...state.selectedIndices]
-        .sort((a, b) => a - b)
-        .map((idx) => q.options[idx].label);
-      if (state.freeTextValue !== null) labels.push(state.freeTextValue);
+      const labels: string[] = [];
+      for (const idx of this.orderedSelectedIndices(state)) {
+        const option = q.options[idx];
+        if (option) {
+          labels.push(option.label);
+        }
+      }
+      if (state.freeTextValue !== null) {
+        labels.push(state.freeTextValue);
+      }
       return labels.join(", ");
     }
 
     if (state.freeTextValue !== null) return state.freeTextValue;
-    if (state.selectedIndex !== null) return q.options[state.selectedIndex].label;
+    if (state.selectedIndex !== null) {
+      return q.options[state.selectedIndex]?.label ?? null;
+    }
+    return null;
+  }
+
+  private getAnswerValueText(q: Question, state: QuestionState): string | null {
+    if (!state.confirmed) return null;
+    if (!this.hasAnswer(q, state)) return null;
+
+    if (q.multiSelect) {
+      const values: string[] = [];
+      for (const idx of this.orderedSelectedIndices(state)) {
+        const option = q.options[idx];
+        if (option) {
+          values.push(option.value ?? option.label);
+        }
+      }
+      if (state.freeTextValue !== null) {
+        values.push(state.freeTextValue);
+      }
+      return values.join(", ");
+    }
+
+    if (state.freeTextValue !== null) return state.freeTextValue;
+    if (state.selectedIndex !== null) {
+      const option = q.options[state.selectedIndex];
+      return option ? option.value ?? option.label : null;
+    }
     return null;
   }
 
@@ -398,17 +616,16 @@ class AskUserQuestionComponent implements Component {
   }
 
   private toggleSelected(index: number): void {
+    const q = this.questions[this.activeTab];
     const state = this.states[this.activeTab];
+
     if (state.selectedIndices.has(index)) {
       state.selectedIndices.delete(index);
     } else {
       state.selectedIndices.add(index);
     }
 
-    if (state.selectedIndices.size === 0 && state.freeTextValue === null) {
-      state.confirmed = false;
-    }
-
+    this.markStateDirty(q, state);
     this.rerender();
   }
 
@@ -420,12 +637,14 @@ class AskUserQuestionComponent implements Component {
   }
 
   private exitEditMode(save: boolean): void {
+    const q = this.questions[this.activeTab];
     const state = this.states[this.activeTab];
+
     if (save) {
-      state.freeTextValue = this.editor.getText().trim();
+      const text = this.editor.getText().trim();
+      state.freeTextValue = text.length > 0 ? text : null;
       state.selectedIndex = null;
-    } else if (!state.confirmed) {
-      state.freeTextValue = null;
+      this.markStateDirty(q, state);
     }
 
     this.editor.setText("");
@@ -438,17 +657,24 @@ class AskUserQuestionComponent implements Component {
     const state = this.states[this.activeTab];
     if (!q || !state || state.confirmed) return;
 
-    if (q.multiSelect) {
-      if (state.selectedIndices.size > 0 || state.freeTextValue !== null) {
-        state.confirmed = true;
-      }
-    } else if (state.freeTextValue !== null || state.selectedIndex !== null) {
+    const valid = this.getValidationError(q, state) === null;
+    if (valid && (this.hasAnswer(q, state) || !questionIsRequired(q))) {
       state.confirmed = true;
     }
   }
 
   private confirmAndAdvance(): void {
-    this.states[this.activeTab].confirmed = true;
+    const q = this.questions[this.activeTab];
+    const state = this.states[this.activeTab];
+
+    const error = this.getValidationError(q, state);
+    if (error !== null) {
+      state.confirmed = true;
+      this.rerender();
+      return;
+    }
+
+    state.confirmed = true;
     this.advance();
   }
 
@@ -468,6 +694,11 @@ class AskUserQuestionComponent implements Component {
   }
 
   private submit(): void {
+    if (!this.allReadyToSubmit()) {
+      this.rerender();
+      return;
+    }
+
     this.resolved = true;
     this.done(this.buildResult());
   }
@@ -479,15 +710,37 @@ class AskUserQuestionComponent implements Component {
 
   private buildResult(): Result {
     const answers: Record<string, string> = {};
+    const displayAnswers: Record<string, string> = {};
+    const answerValues: Record<string, string> = {};
+    const containsFreeText: Record<string, boolean> = {};
+
     for (let i = 0; i < this.questions.length; i++) {
       const q = this.questions[i];
-      const s = this.states[i];
-      const answer = this.getAnswerText(q, s);
-      if (answer === null) continue;
-      answers[q.question] = answer;
+      const state = this.states[i];
+      const key = questionKey(q);
+
+      containsFreeText[key] = state.freeTextValue !== null;
+
+      const answerText = this.getAnswerText(q, state);
+      if (answerText === null) {
+        continue;
+      }
+
+      answers[key] = answerText;
+      displayAnswers[key] = answerText;
+
+      const answerValueText = this.getAnswerValueText(q, state);
+      answerValues[key] = answerValueText ?? answerText;
     }
 
-    return { questions: this.questions, answers, cancelled: false };
+    return {
+      questions: this.questions,
+      answers,
+      displayAnswers,
+      answerValues,
+      containsFreeText,
+      cancelled: false,
+    };
   }
 
   handleInput(data: string): void {
@@ -495,7 +748,7 @@ class AskUserQuestionComponent implements Component {
 
     if (!this.isSingle && this.activeTab === this.questions.length) {
       if (matchesKey(data, Key.enter)) {
-        if (this.allConfirmed()) this.submit();
+        if (this.allReadyToSubmit()) this.submit();
         return;
       }
       if (matchesKey(data, Key.escape)) {
@@ -525,20 +778,14 @@ class AskUserQuestionComponent implements Component {
         return;
       }
       if (matchesKey(data, Key.enter)) {
-        const text = this.editor.getText().trim();
-        if (text) {
-          this.exitEditMode(true);
-          if (!q.multiSelect) {
+        this.exitEditMode(true);
+        if (!q.multiSelect) {
+          if (state.freeTextValue !== null || !questionIsRequired(q)) {
             this.confirmAndAdvance();
           } else {
             this.tui.requestRender();
           }
         } else {
-          state.freeTextValue = null;
-          if (q.multiSelect && state.selectedIndices.size === 0) {
-            state.confirmed = false;
-          }
-          this.exitEditMode(false);
           this.tui.requestRender();
         }
         return;
@@ -585,7 +832,10 @@ class AskUserQuestionComponent implements Component {
         this.enterEditMode();
         return;
       }
-      if (matchesKey(data, Key.enter) && state.freeTextValue !== null) {
+      if (
+        matchesKey(data, Key.enter) &&
+        (state.freeTextValue !== null || !questionIsRequired(q))
+      ) {
         this.confirmAndAdvance();
         return;
       }
@@ -597,9 +847,7 @@ class AskUserQuestionComponent implements Component {
         return;
       }
       if (matchesKey(data, Key.enter) && !onOther) {
-        if (state.selectedIndices.size > 0 || state.freeTextValue !== null) {
-          this.confirmAndAdvance();
-        }
+        this.confirmAndAdvance();
         return;
       }
     } else if (matchesKey(data, Key.enter) && !onOther) {
@@ -620,49 +868,60 @@ Use this tool when multiple valid approaches exist and you need the user's prefe
 Each question must have 2–4 options for the user to choose from.
 Set multiSelect: true when more than one option can validly apply at the same time.
 The header field is a short label (max 12 characters) used in the tab bar when showing multiple questions.
+Optional fields:
+- question.id for stable answer keys
+- option.value for stable machine values in details.answerValues
+- required/minSelections/maxSelections for validation
+- echoFreeTextInContent to include free-text answers in content output (default false).
 Always use this tool instead of asking questions in plain text — it provides a structured, interactive UI.`,
     parameters: InputSchema,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const input = params as Input;
+
       if (!ctx.hasUI) {
-        pi.setActiveTools(
-          pi.getActiveTools().filter((name) => name !== TOOL_NAME),
-        );
         return {
           content: [
             {
               type: "text",
-              text: "Error: ask_user_question requires an interactive session. The tool has been disabled for this session.",
+              text: "Error: ask_user_question requires an interactive session.",
             },
           ],
-          details: cancelledResult(params.questions),
+          details: cancelledResult(input.questions),
         };
       }
 
       const result = await ctx.ui.custom<Result | null>(
         (tui, theme, _kb, done) =>
-          new AskUserQuestionComponent(params.questions, tui, theme, done),
+          new AskUserQuestionComponent(input.questions, tui, theme, done),
       );
 
       if (result === null || result.cancelled) {
         return {
           content: [{ type: "text", text: "User cancelled" }],
-          details: cancelledResult(params.questions),
+          details: cancelledResult(input.questions),
         };
       }
 
-      const summaryLines = result.questions.map(
-        (q) => `${q.header}: ${result.answers[q.question] ?? "(no answer)"}`,
-      );
+      const echoFreeTextInContent = input.echoFreeTextInContent === true;
+      const details: Result = {
+        ...result,
+        displayAnswers: buildDisplayAnswers(result, echoFreeTextInContent),
+      };
+
+      const summaryLines = details.questions.map((q) => {
+        const key = questionKey(q);
+        return `${q.header}: ${details.displayAnswers[key] ?? "(no answer)"}`;
+      });
 
       return {
         content: [{ type: "text", text: summaryLines.join("\n") }],
-        details: result satisfies Result,
+        details: details satisfies Result,
       };
     },
 
     renderCall(args, theme) {
-      const questions = (args.questions ?? []) as Question[];
+      const questions = ((args as { questions?: Question[] }).questions ?? []) as Question[];
       const topics = questions.map((q) => q.header).join(", ");
       return new TruncatedText(
         theme.fg("toolTitle", theme.bold("ask user ")) +
@@ -686,7 +945,8 @@ Always use this tool instead of asking questions in plain text — it provides a
 
       const box = new Box(0, 0);
       for (const q of details.questions) {
-        const answer = details.answers[q.question] ?? "(no answer)";
+        const key = questionKey(q);
+        const answer = details.displayAnswers[key] ?? details.answers[key] ?? "(no answer)";
         box.addChild(
           new TruncatedText(
             theme.fg("success", "✓ ") +
