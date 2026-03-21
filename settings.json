@@ -3,13 +3,13 @@
   "spinnerVerbs": "random",
   "packages": [
     "npm:pi-scurl",
-    "npm:@pborck/pi-de",
     "npm:@aliou/pi-synthetic",
     "npm:@marckrenn/pi-sub-bar",
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "git:github.com/ghoseb/pi-askuserquestion",
-    "git:github.com/coctostan/pi-hashline-readmap",
+    "git:github.com/ravshansbox/vscode-pi-companion",
+    "npm:pi-hashline-readmap",
     "npm:pi-bash-trim",
     {
       "source": "npm:pi-amplike",
