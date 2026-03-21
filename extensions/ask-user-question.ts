@@ -78,6 +78,12 @@ const QuestionSchema = Type.Object({
         "Maximum number of selections allowed for multiSelect questions.",
     }),
   ),
+  allowFreeText: Type.Optional(
+    Type.Boolean({
+      description:
+        "When false, the free-text 'Type your own answer...' option is hidden. Defaults to true.",
+    }),
+  ),
 });
 
 const InputSchema = Type.Object({
@@ -114,17 +120,30 @@ function questionKey(question: Question): string {
   return id && id.length > 0 ? id : question.question;
 }
 
+function resolveQuestionKeys(questions: Question[]): string[] {
+  const raw = questions.map(questionKey);
+  const counts = new Map<string, number>();
+  for (const k of raw) counts.set(k, (counts.get(k) ?? 0) + 1);
+  const used = new Map<string, number>();
+  return raw.map((k) => {
+    if ((counts.get(k) ?? 0) <= 1) return k;
+    const idx = (used.get(k) ?? 0) + 1;
+    used.set(k, idx);
+    return `${k}#${idx}`;
+  });
+}
+
 function questionIsRequired(question: Question): boolean {
   return question.required !== false;
 }
 
 function cancelledResult(questions: Question[]): Result {
   const containsFreeText: Record<string, boolean> = {};
+  const keys = resolveQuestionKeys(questions);
 
-  for (const question of questions) {
-    containsFreeText[questionKey(question)] = false;
+  for (let i = 0; i < questions.length; i++) {
+    containsFreeText[keys[i]] = false;
   }
-
   return {
     questions,
     answers: {},
@@ -140,20 +159,19 @@ function buildDisplayAnswers(
   echoFreeTextInContent: boolean,
 ): Record<string, string> {
   const displayAnswers: Record<string, string> = {};
+  const keys = resolveQuestionKeys(result.questions);
 
-  for (const question of result.questions) {
-    const key = questionKey(question);
+  for (let i = 0; i < result.questions.length; i++) {
+    const key = keys[i];
     const answer = result.answers[key];
     if (answer === undefined) {
       continue;
     }
-
     displayAnswers[key] =
       !echoFreeTextInContent && result.containsFreeText[key]
         ? REDACTED_FREE_TEXT_ANSWER
         : answer;
   }
-
   return displayAnswers;
 }
 
@@ -181,6 +199,7 @@ class AskUserQuestionComponent implements Component {
   private states: QuestionState[];
   private activeTab = 0;
   private editor: Editor;
+  private resolvedKeys: string[];
 
   private cachedWidth?: number;
   private cachedLines?: string[];
@@ -206,6 +225,8 @@ class AskUserQuestionComponent implements Component {
       inEditMode: false,
     }));
 
+    this.resolvedKeys = resolveQuestionKeys(questions);
+
     const editorTheme: EditorTheme = {
       borderColor: (s) => theme.fg("muted", s),
       selectList: {
@@ -227,6 +248,9 @@ class AskUserQuestionComponent implements Component {
   }
 
   private allOptions(q: Question): DisplayOption[] {
+    if (q.allowFreeText === false) {
+      return q.options as DisplayOption[];
+    }
     return [...q.options, { label: OTHER_OPTION_LABEL, isOther: true as const }];
   }
 
@@ -244,7 +268,7 @@ class AskUserQuestionComponent implements Component {
     }
 
     const required = questionIsRequired(q);
-    const min = Math.max(0, q.minSelections ?? (required ? 1 : 0));
+    const min = required ? Math.max(1, q.minSelections ?? 1) : Math.max(0, q.minSelections ?? 0);
     const maxInput = q.maxSelections;
     const max = typeof maxInput === "number" ? Math.max(min, maxInput) : null;
 
@@ -490,8 +514,8 @@ class AskUserQuestionComponent implements Component {
     if (state.inEditMode) {
       add(t.fg("dim", " Enter submit · Esc back"));
     } else {
-      const onOther = state.cursorIndex === opts.length - 1;
-      const tabHint = this.isSingle ? "" : " · ←→ switch tabs";
+      const onOther = opts[state.cursorIndex]?.isOther === true;
+      const tabHint = this.isSingle ? "" : onOther ? " · ←→ switch tabs" : " · Tab/←→ switch tabs";
       let actionHint: string;
       if (onOther) {
         actionHint = "Space/Tab open editor";
@@ -549,7 +573,7 @@ class AskUserQuestionComponent implements Component {
       add(t.fg("warning", ` Still needed: ${missing}`));
     }
     add("");
-    add(t.fg("dim", " ←→ switch tabs · Esc cancel"));
+    add(t.fg("dim", " ←→ switch tabs · Enter jump to unanswered · Esc cancel"));
   }
 
   private orderedSelectedIndices(state: QuestionState): number[] {
@@ -610,8 +634,8 @@ class AskUserQuestionComponent implements Component {
   private moveCursor(delta: -1 | 1): void {
     const q = this.questions[this.activeTab];
     const state = this.states[this.activeTab];
-    const max = this.allOptions(q).length - 1;
-    state.cursorIndex = Math.max(0, Math.min(max, state.cursorIndex + delta));
+    const count = this.allOptions(q).length;
+    state.cursorIndex = (state.cursorIndex + delta + count) % count;
     this.rerender();
   }
 
@@ -684,13 +708,24 @@ class AskUserQuestionComponent implements Component {
       return;
     }
 
-    if (this.activeTab < this.questions.length - 1) {
-      this.activeTab++;
+    const next = this.firstUnsatisfiedTab();
+    if (next !== null) {
+      this.activeTab = next;
     } else {
       this.activeTab = this.questions.length;
     }
-
     this.rerender();
+  }
+
+  private firstUnsatisfiedTab(): number | null {
+    for (let i = 0; i < this.questions.length; i++) {
+      if (!this.isQuestionSatisfied(i)) return i;
+    }
+    return null;
+  }
+
+  private hasAnyAnswers(): boolean {
+    return this.questions.some((q, i) => this.hasAnswer(q, this.states[i]));
   }
 
   private submit(): void {
@@ -717,7 +752,7 @@ class AskUserQuestionComponent implements Component {
     for (let i = 0; i < this.questions.length; i++) {
       const q = this.questions[i];
       const state = this.states[i];
-      const key = questionKey(q);
+      const key = this.resolvedKeys[i];
 
       containsFreeText[key] = state.freeTextValue !== null;
 
@@ -748,7 +783,12 @@ class AskUserQuestionComponent implements Component {
 
     if (!this.isSingle && this.activeTab === this.questions.length) {
       if (matchesKey(data, Key.enter)) {
-        if (this.allReadyToSubmit()) this.submit();
+        if (this.allReadyToSubmit()) {
+          this.submit();
+        } else {
+          this.activeTab = this.firstUnsatisfiedTab() ?? 0;
+          this.rerender();
+        }
         return;
       }
       if (matchesKey(data, Key.escape)) {
@@ -796,7 +836,12 @@ class AskUserQuestionComponent implements Component {
     }
 
     if (matchesKey(data, Key.escape)) {
-      this.cancel();
+      if (!this.isSingle && this.hasAnyAnswers()) {
+        this.activeTab = this.questions.length;
+        this.rerender();
+      } else {
+        this.cancel();
+      }
       return;
     }
 
@@ -825,22 +870,28 @@ class AskUserQuestionComponent implements Component {
     }
 
     const opts = this.allOptions(q);
-    const onOther = state.cursorIndex === opts.length - 1;
-
+    const onOther = opts[state.cursorIndex]?.isOther === true;
     if (onOther) {
       if (matchesKey(data, Key.space) || matchesKey(data, Key.tab)) {
         this.enterEditMode();
         return;
       }
-      if (
-        matchesKey(data, Key.enter) &&
-        (state.freeTextValue !== null || !questionIsRequired(q))
-      ) {
-        this.confirmAndAdvance();
+      if (matchesKey(data, Key.enter)) {
+        if (state.freeTextValue !== null || !questionIsRequired(q)) {
+          this.confirmAndAdvance();
+        } else {
+          this.enterEditMode();
+        }
         return;
       }
     }
 
+    if (!this.isSingle && !onOther && matchesKey(data, Key.tab)) {
+      this.autoConfirmIfAnswered();
+      this.activeTab = (this.activeTab + 1) % this.totalTabs;
+      this.rerender();
+      return;
+    }
     if (q.multiSelect) {
       if (matchesKey(data, Key.space) && !onOther) {
         this.toggleSelected(state.cursorIndex);
@@ -872,6 +923,7 @@ Optional fields:
 - question.id for stable answer keys
 - option.value for stable machine values in details.answerValues
 - required/minSelections/maxSelections for validation
+- allowFreeText to show/hide the free-text "Type your own answer" option (default true).
 - echoFreeTextInContent to include free-text answers in content output (default false).
 Always use this tool instead of asking questions in plain text — it provides a structured, interactive UI.`,
     parameters: InputSchema,
@@ -909,8 +961,9 @@ Always use this tool instead of asking questions in plain text — it provides a
         displayAnswers: buildDisplayAnswers(result, echoFreeTextInContent),
       };
 
-      const summaryLines = details.questions.map((q) => {
-        const key = questionKey(q);
+      const keys = resolveQuestionKeys(details.questions);
+      const summaryLines = details.questions.map((q, i) => {
+        const key = keys[i];
         return `${q.header}: ${details.displayAnswers[key] ?? "(no answer)"}`;
       });
 
@@ -944,8 +997,9 @@ Always use this tool instead of asking questions in plain text — it provides a
       }
 
       const box = new Box(0, 0);
-      for (const q of details.questions) {
-        const key = questionKey(q);
+      const keys = resolveQuestionKeys(details.questions);
+      for (const [i, q] of details.questions.entries()) {
+        const key = keys[i];
         const answer = details.displayAnswers[key] ?? details.answers[key] ?? "(no answer)";
         box.addChild(
           new TruncatedText(
