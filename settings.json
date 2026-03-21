@@ -6,7 +6,6 @@
     "npm:@pborck/pi-de",
     "npm:@aliou/pi-synthetic",
     "npm:@marckrenn/pi-sub-bar",
-    "npm:pi-agentic-compaction",
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "git:github.com/ghoseb/pi-askuserquestion",
@@ -26,6 +25,6 @@
     }
   ],
   "compaction": {
-    "enabled": true
+    "enabled": false
   }
 }
