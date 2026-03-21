@@ -8,7 +8,6 @@
     "npm:@marckrenn/pi-sub-bar",
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
-    "git:github.com/ghoseb/pi-askuserquestion",
     "npm:pi-hashline-readmap",
     "npm:pi-bash-trim",
     {
