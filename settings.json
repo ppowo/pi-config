@@ -12,6 +12,7 @@
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
     "npm:pi-bash-trim",
+    "npm:pi-system-reminders",
     {
       "source": "npm:pi-amplike",
       "extensions": [

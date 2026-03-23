@@ -27,6 +27,7 @@ npm run setup
   - `extensions/`
   - `skills/`
   - `themes/`
+  - `reminders/`
   - `APPEND_SYSTEM.md`
   - `models.json`
 - merges overlay files into:
@@ -39,10 +40,12 @@ npm run setup
 - `extensions/` — pi extensions
 - `skills/` — pi skills
 - `themes/` — pi themes
+- `reminders/` — global reminder definitions for `pi-system-reminders`
 - `settings.json` — repo-managed pi settings overlay
 - `models.json` — custom provider/model definitions symlinked into pi
 
 The bootstrap script is plain Node.js, but pi extensions in `extensions/` can still stay TypeScript.
+Reminder files tracked in `reminders/` become global reminders via `~/.pi/agent/reminders`; project-specific reminders for some other repo should still live in that repo's `.pi/reminders/` directory.
 
 ## Re-run / update
 
