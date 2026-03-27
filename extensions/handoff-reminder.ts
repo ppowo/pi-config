@@ -15,11 +15,31 @@ type ReminderThreshold = {
 	label: string;
 };
 
-const REMINDER_THRESHOLDS: ReminderThreshold[] = [
+const DEFAULT_THRESHOLDS: ReminderThreshold[] = [
 	{ percent: 72, notifyType: "info", label: "heads-up" },
 	{ percent: 82, notifyType: "warning", label: "recommended" },
 	{ percent: 90, notifyType: "warning", label: "urgent" },
 ];
+
+// GitHub Copilot GPT 5.3 Codex reports 400k context but actually has ~270k
+// Adjusted thresholds = default × (270/400) = default × 0.675
+const COPILOT_CODEX_53_THRESHOLDS: ReminderThreshold[] = [
+	{ percent: 49, notifyType: "info", label: "heads-up" },      // 72% × 0.675
+	{ percent: 55, notifyType: "warning", label: "recommended" }, // 82% × 0.675
+	{ percent: 61, notifyType: "warning", label: "urgent" },    // 90% × 0.675
+];
+
+// Pattern to match GitHub Copilot GPT 5.3 Codex models
+// Examples: "gpt-5.3-codex", "gpt-5.3-codex-spark", etc.
+const COPILOT_CODEX_53_PATTERN = /^gpt-5\.3-codex/;
+
+function getThresholds(provider: string, modelId: string): ReminderThreshold[] {
+	// Only apply adjusted thresholds to GitHub Copilot GPT 5.3 Codex
+	if (provider === "github-copilot" && COPILOT_CODEX_53_PATTERN.test(modelId)) {
+		return COPILOT_CODEX_53_THRESHOLDS;
+	}
+	return DEFAULT_THRESHOLDS;
+}
 
 const RESET_BELOW_PERCENT = 64;
 const HIGH_USAGE_REPEAT_EVERY_TURNS = 4;
@@ -41,10 +61,10 @@ function getSessionKey(ctx: ExtensionContext): string {
 	return ctx.sessionManager.getSessionFile() ?? `in-memory:${ctx.cwd}`;
 }
 
-function getCrossedThresholdIndex(percent: number): number {
+function getCrossedThresholdIndex(percent: number, thresholds: ReminderThreshold[]): number {
 	let crossed = -1;
-	for (let i = 0; i < REMINDER_THRESHOLDS.length; i += 1) {
-		if (percent >= REMINDER_THRESHOLDS[i].percent) crossed = i;
+	for (let i = 0; i < thresholds.length; i += 1) {
+		if (percent >= thresholds[i].percent) crossed = i;
 	}
 	return crossed;
 }
@@ -124,7 +144,10 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const crossedThreshold = getCrossedThresholdIndex(percent);
+		const provider = ctx.model?.provider ?? "";
+		const modelId = ctx.model?.id ?? "";
+		const thresholds = getThresholds(provider, modelId);
+		const crossedThreshold = getCrossedThresholdIndex(percent, thresholds);
 		if (crossedThreshold < 0) return;
 
 		const modelLabel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "current model";
@@ -133,7 +156,7 @@ export default function (pi: ExtensionAPI) {
 		const remainingTokens = formatTokens(usage.contextWindow - usage.tokens);
 
 		const sendReminder = (repeatUrgent = false) => {
-			const threshold = REMINDER_THRESHOLDS[crossedThreshold];
+			const threshold = thresholds[crossedThreshold];
 			const prefix = repeatUrgent ? "Still near context limit" : `Context ${threshold.label}`;
 			ctx.ui.notify(
 				`${prefix}: ${percent.toFixed(1)}% on ${modelLabel} (${usedTokens}/${totalTokens}, ${remainingTokens} left). ${HANDOFF_GUIDANCE}`,
@@ -148,7 +171,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		const highestThresholdIndex = REMINDER_THRESHOLDS.length - 1;
+		const highestThresholdIndex = thresholds.length - 1;
 		if (crossedThreshold === highestThresholdIndex && state.highestNotifiedThreshold === highestThresholdIndex) {
 			state.highUsageTurnsSinceReminder += 1;
 			if (state.highUsageTurnsSinceReminder >= HIGH_USAGE_REPEAT_EVERY_TURNS) {
