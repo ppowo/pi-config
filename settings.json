@@ -12,19 +12,7 @@
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
     "npm:pi-bash-trim",
-    "npm:pi-system-reminders",
-    {
-      "source": "npm:pi-amplike",
-      "extensions": [
-        "extensions/handoff.ts",
-        "extensions/session-query.ts"
-      ],
-      "skills": [
-        "skills/session-query/**"
-      ],
-      "prompts": [],
-      "themes": []
-    }
+    "npm:pi-system-reminders"
   ],
   "compaction": {
     "enabled": false
