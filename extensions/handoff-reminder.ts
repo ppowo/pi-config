@@ -139,6 +139,14 @@ export default function (pi: ExtensionAPI) {
 		if (!usage || usage.percent === null || usage.tokens === null) return;
 
 		const percent = usage.percent;
+		
+		// Skip warnings when percent > 100 - indicates bogus contextWindow metadata
+		// (e.g., openai-codex/gpt-5.4 reports 272k but actually supports 1M+ tokens)
+		if (percent > 100) {
+			resetReminderState();
+			return;
+		}
+		
 		if (percent < RESET_BELOW_PERCENT) {
 			resetReminderState();
 			return;
