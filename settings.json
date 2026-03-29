@@ -2,6 +2,11 @@
   "theme": "solarized-light",
   "spinnerVerbs": "random",
   "packages": [
+    {
+      "source": "npm:pi-amplike",
+      "extensions": ["extensions/handoff.ts", "extensions/session-query.ts"],
+      "skills": ["skills/session-query/SKILL.md"]
+    },
     "npm:pi-scurl",
     "npm:@pborck/pi-de",
     "npm:@aliou/pi-synthetic",
