@@ -32,6 +32,7 @@ npm run setup
   - `models.json`
 - merges overlay files into:
   - `~/.pi/agent/settings.json` (from `settings.json`)
+  - `~/.pi/agent/verbosity.json` (from `verbosity.json`)
 
 ## Repo layout
 
@@ -42,6 +43,7 @@ npm run setup
 - `themes/` — pi themes
 - `reminders/` — global reminder definitions for `pi-system-reminders`
 - `settings.json` — repo-managed pi settings overlay
+- `verbosity.json` — repo-managed pi-verbosity-control overlay
 - `models.json` — custom provider/model definitions symlinked into pi
 
 The bootstrap script is plain Node.js, but pi extensions in `extensions/` can still stay TypeScript.
@@ -55,4 +57,4 @@ Re-run `npm run setup` any time you change files in this repo or set up a new ma
 
 ## Note
 
-`settings.json` is applied as a repo-managed overlay. Every leaf path present there is owned by this repo (for example `theme`, `spinnerVerbs`, `packages`, and `compaction.enabled`). Other local pi settings are preserved, and if a repo-managed key is later removed from `settings.json`, re-running setup removes it from `~/.pi/agent/settings.json` too.
+`settings.json` and `verbosity.json` are applied as repo-managed overlays. Every leaf path present there is owned by this repo. Other local pi settings are preserved, and if a repo-managed key is later removed from either file, re-running setup removes it from the corresponding file in `~/.pi/agent/` too.

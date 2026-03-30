@@ -26,6 +26,9 @@ const links = [
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
 const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json");
+const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
+const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
+const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
 const LOCAL_PACKAGES_STATE = join(PI_DIR, ".managed-local-packages.json");
 
 function normalizeRelPath(path) {
@@ -438,6 +441,7 @@ async function main() {
   }
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
+  await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
   await syncLocalExtensionPackages();
 
   console.log("bootstrap complete");
