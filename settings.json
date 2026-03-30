@@ -7,6 +7,7 @@
       "extensions": ["extensions/handoff.ts", "extensions/session-query.ts"],
       "skills": ["skills/session-query/SKILL.md"]
     },
+    "npm:pi-context-zone",
     "npm:pi-scurl",
     "npm:@pborck/pi-de",
     "npm:@aliou/pi-synthetic",
