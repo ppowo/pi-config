@@ -1,6 +1,5 @@
 {
   "theme": "solarized-light",
-  "spinnerVerbs": "random",
   "packages": [
     {
       "source": "npm:pi-amplike",
@@ -15,7 +14,6 @@
     "npm:pi-verbosity-control",
     "npm:@marckrenn/pi-sub-bar",
     "npm:@aaronmaturen/pi-context7",
-    "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
     "npm:pi-bash-trim",
     "npm:pi-system-reminders"
