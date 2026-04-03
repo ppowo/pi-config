@@ -21,7 +21,6 @@ const links = [
   { link: join(PI_DIR, "reminders"), target: join(REPO_DIR, "reminders") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
   { link: join(PI_DIR, "models.json"), target: join(REPO_DIR, "models.json") },
-  { link: join(HOME, ".config", "pi", "nushell", "config.nu"), target: join(REPO_DIR, "nushell", "config.nu") },
 ];
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
@@ -31,6 +30,16 @@ const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
 const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
 const LOCAL_PACKAGES_STATE = join(PI_DIR, ".managed-local-packages.json");
+const PI_NUSHELL_DIR = join(HOME, ".config", "pi", "nushell");
+const PI_NUSHELL_CONFIG = join(PI_NUSHELL_DIR, "config.nu");
+const PI_NUSHELL_PLUGIN_REGISTRY = join(PI_NUSHELL_DIR, "plugins.msgpackz");
+const OPTIONAL_NUSHELL_PLUGINS = [
+  { name: "gstat", binary: "nu_plugin_gstat" },
+  { name: "query", binary: "nu_plugin_query" },
+  { name: "formats", binary: "nu_plugin_formats" },
+  { name: "semver", binary: "nu_plugin_semver" },
+  { name: "file", binary: "nu_plugin_file" },
+];
 
 function normalizeRelPath(path) {
   return path.replaceAll("\\", "/");
@@ -86,6 +95,82 @@ async function relink(linkPath, targetPath) {
   await symlink(symlinkTarget, linkPath, symlinkType);
 
   console.log(`linked ${linkPath} -> ${targetPath}`);
+}
+
+function quoteForPosixShell(value) {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function quoteNuString(value) {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+async function writeManagedFile(path, content) {
+  assertSafePath(path, [HOME]);
+  await mkdir(dirname(path), { recursive: true });
+
+  if (existsSync(path)) {
+    const stat = await lstat(path);
+    if (stat.isDirectory() || stat.isSymbolicLink()) {
+      await rm(path, { recursive: true, force: true });
+    }
+  }
+
+  await writeFile(path, content);
+}
+
+async function capture(command, args, cwd, options = {}) {
+  return await new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ...(options.env ?? {}) },
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf-8");
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf-8");
+    });
+
+    child.on("error", rejectPromise);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolvePromise(stdout.trim());
+      } else {
+        const detail = stderr.trim() || stdout.trim() || `exit code ${code}`;
+        rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd}: ${detail}`));
+      }
+    });
+  });
+}
+
+async function resolveCommandPath(commandName) {
+  if (process.platform === "win32") {
+    try {
+      const output = await capture("where", [commandName], REPO_DIR);
+      return output.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const output = await capture("/bin/sh", ["-lc", `command -v ${quoteForPosixShell(commandName)}`], REPO_DIR);
+    const resolvedPath = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+    if (!resolvedPath) {
+      return null;
+    }
+    return isAbsolute(resolvedPath) ? resolvedPath : resolve(REPO_DIR, resolvedPath);
+  } catch {
+    return null;
+  }
 }
 
 function isObject(value) {
@@ -335,14 +420,14 @@ async function fingerprintLocalPackage(pkg) {
   return hash.digest("hex");
 }
 
-async function run(command, args, cwd) {
+async function run(command, args, cwd, options = {}) {
   await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd,
+      env: { ...process.env, ...(options.env ?? {}) },
       stdio: "inherit",
       shell: false,
     });
-
     child.on("error", rejectPromise);
     child.on("close", (code) => {
       if (code === 0) {
@@ -432,6 +517,58 @@ async function syncLocalExtensionPackages() {
   console.log(`local extension package sync complete (${Object.keys(nextPackages).length} managed package(s))`);
 }
 
+async function syncPiNushellPlugins() {
+  const nuPath = await resolveCommandPath("nu");
+  if (!nuPath) {
+    console.log("skip pi nushell bootstrap: nu not found in PATH");
+    return;
+  }
+
+  await mkdir(PI_NUSHELL_DIR, { recursive: true });
+  assertSafePath(PI_NUSHELL_PLUGIN_REGISTRY, [HOME]);
+  await rm(PI_NUSHELL_PLUGIN_REGISTRY, { force: true });
+
+  const discoveredPlugins = [];
+  for (const plugin of OPTIONAL_NUSHELL_PLUGINS) {
+    const binaryPath = await resolveCommandPath(plugin.binary);
+    if (!binaryPath) {
+      console.log(`skip optional nushell plugin (not found in PATH): ${plugin.binary}`);
+      continue;
+    }
+
+    console.log(`registering pi nushell plugin: ${plugin.name} (${binaryPath})`);
+    await run(
+      nuPath,
+      ["--no-config-file", "-c", "plugin add --plugin-config $env.PI_NUSHELL_PLUGIN_CONFIG $env.PI_NUSHELL_PLUGIN_BINARY"],
+      REPO_DIR,
+      {
+        env: {
+          PI_NUSHELL_PLUGIN_CONFIG: PI_NUSHELL_PLUGIN_REGISTRY,
+          PI_NUSHELL_PLUGIN_BINARY: binaryPath,
+        },
+      },
+    );
+
+    discoveredPlugins.push({ ...plugin, binaryPath });
+  }
+
+  const configLines = [
+    "# Generated by pi-config bootstrap.",
+    `# Loads Nushell plugins from ${PI_NUSHELL_PLUGIN_REGISTRY}.`,
+  ];
+
+  for (const plugin of discoveredPlugins) {
+    configLines.push(`plugin use --plugin-config ${quoteNuString(PI_NUSHELL_PLUGIN_REGISTRY)} ${plugin.name}`);
+  }
+
+  if (discoveredPlugins.length === 0) {
+    configLines.push("# No optional Nushell plugins found on PATH during setup.");
+  }
+
+  await writeManagedFile(PI_NUSHELL_CONFIG, configLines.join("\n") + "\n");
+  console.log(`wrote pi nushell config: ${PI_NUSHELL_CONFIG}`);
+}
+
 async function main() {
   if (!existsSync(PI_DIR)) {
     await mkdir(PI_DIR, { recursive: true });
@@ -444,6 +581,7 @@ async function main() {
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
   await syncLocalExtensionPackages();
+  await syncPiNushellPlugins();
 
   console.log("bootstrap complete");
 }
