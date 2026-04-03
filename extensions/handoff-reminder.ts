@@ -97,13 +97,7 @@ export default function (pi: ExtensionAPI) {
 		return { cancel: true };
 	});
 
-	// Session changes reset reminder progression.
 	pi.on("session_start", async () => {
-		state.sessionKey = null;
-		resetReminderState();
-	});
-
-	pi.on("session_switch", async () => {
 		state.sessionKey = null;
 		resetReminderState();
 	});

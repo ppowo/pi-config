@@ -3,29 +3,18 @@
  * Mirrors Claude Code's system-reminder-session-continuation.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-
-type SessionSwitchEvent = {
+type SessionStartEvent = {
 	reason?: string;
 };
 
-export default function (pi: ExtensionAPI) {
-	let resumed = false;
+type ReminderArgs = {
+	event: SessionStartEvent;
+};
 
-	pi.on("session_switch", async (event: SessionSwitchEvent) => {
-		if (event.reason === "resume") {
-			resumed = true;
-		}
-	});
-
+export default function (_pi: ExtensionAPI) {
 	return {
-		on: "session_switch",
-		when: () => {
-			if (resumed) {
-				resumed = false;
-				return true;
-			}
-			return false;
-		},
+		on: "session_start",
+		when: ({ event }: ReminderArgs) => event.reason === "resume",
 		message: "This session is being resumed. Application state may have changed since last time. Re-read relevant files before making assumptions about current state.",
 	};
 }
