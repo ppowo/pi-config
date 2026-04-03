@@ -17,8 +17,11 @@
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
-    "npm:pi-bash-trim",
     "npm:pi-system-reminders"
+  ],
+  "extensions": [
+    "extensions/grep-trim.ts",
+    "extensions/bash-trim.ts"
   ],
   "compaction": {
     "enabled": false
