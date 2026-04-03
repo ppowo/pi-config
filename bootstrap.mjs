@@ -21,6 +21,7 @@ const links = [
   { link: join(PI_DIR, "reminders"), target: join(REPO_DIR, "reminders") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
   { link: join(PI_DIR, "models.json"), target: join(REPO_DIR, "models.json") },
+  { link: join(HOME, ".config", "pi", "nushell", "config.nu"), target: join(REPO_DIR, "nushell", "config.nu") },
 ];
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
