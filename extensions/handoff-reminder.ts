@@ -7,13 +7,25 @@
  * - Nudge user to run /handoff with a custom goal before overflow
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 type ReminderThreshold = {
 	percent: number;
 	notifyType: "info" | "warning";
 	label: string;
 };
+
+type PendingHandoffLiteState = {
+	kind: "pending";
+	token: string;
+	prompt: string;
+};
+
+type HandoffLiteState =
+	| PendingHandoffLiteState
+	| { kind: "dispatched"; token: string }
+	| { kind: "submitted"; token: string }
+	| { kind: "failed"; token: string; error: string };
 
 const DEFAULT_THRESHOLDS: ReminderThreshold[] = [
 	{ percent: 72, notifyType: "info", label: "heads-up" },
@@ -32,6 +44,7 @@ const COPILOT_CODEX_53_THRESHOLDS: ReminderThreshold[] = [
 // Pattern to match GitHub Copilot GPT 5.3 Codex models
 // Examples: "gpt-5.3-codex", "gpt-5.3-codex-spark", etc.
 const COPILOT_CODEX_53_PATTERN = /^gpt-5\.3-codex/;
+const HANDOFF_LITE_STATE_TYPE = "handoff-lite-state";
 
 function getThresholds(provider: string, modelId: string): ReminderThreshold[] {
 	// Only apply adjusted thresholds to GitHub Copilot GPT 5.3 Codex
@@ -69,16 +82,91 @@ function getCrossedThresholdIndex(percent: number, thresholds: ReminderThreshold
 	return crossed;
 }
 
+function createHandoffLiteToken(): string {
+	return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isHandoffLiteState(data: unknown): data is HandoffLiteState {
+	if (!data || typeof data !== "object") return false;
+	const candidate = data as Record<string, unknown>;
+
+	if (candidate.kind === "pending") {
+		return typeof candidate.token === "string" && typeof candidate.prompt === "string";
+	}
+
+	if (candidate.kind === "dispatched" || candidate.kind === "submitted") {
+		return typeof candidate.token === "string";
+	}
+
+	if (candidate.kind === "failed") {
+		return typeof candidate.token === "string" && typeof candidate.error === "string";
+	}
+
+	return false;
+}
+
+function getPendingHandoffLiteState(ctx: ExtensionContext): PendingHandoffLiteState | undefined {
+	const pending: PendingHandoffLiteState[] = [];
+	const handled = new Set<string>();
+
+	for (const entry of ctx.sessionManager.getBranch()) {
+		if (entry.type !== "custom" || entry.customType !== HANDOFF_LITE_STATE_TYPE || !isHandoffLiteState(entry.data)) {
+			continue;
+		}
+
+		if (entry.data.kind === "pending") {
+			pending.push(entry.data);
+		} else {
+			handled.add(entry.data.token);
+		}
+	}
+
+	for (let i = pending.length - 1; i >= 0; i -= 1) {
+		if (!handled.has(pending[i].token)) {
+			return pending[i];
+		}
+	}
+
+	return undefined;
+}
+
+async function startHandoffLiteSession(
+	ctx: ExtensionCommandContext,
+	prompt: string,
+	parentSession: string | undefined,
+): Promise<boolean> {
+	const token = createHandoffLiteToken();
+	const newSessionResult = await ctx.newSession({
+		parentSession,
+		setup: async (sessionManager) => {
+			sessionManager.appendCustomEntry(HANDOFF_LITE_STATE_TYPE, {
+				kind: "pending",
+				token,
+				prompt,
+			});
+		},
+	});
+	return !newSessionResult.cancelled;
+}
+
 export default function (pi: ExtensionAPI) {
 	const state: ReminderState = {
 		sessionKey: null,
 		highestNotifiedThreshold: -1,
 		highUsageTurnsSinceReminder: 0,
 	};
+	let scheduledAutoSubmit: ReturnType<typeof setTimeout> | undefined;
 
 	const resetReminderState = () => {
 		state.highestNotifiedThreshold = -1;
 		state.highUsageTurnsSinceReminder = 0;
+	};
+
+	const clearScheduledAutoSubmit = () => {
+		if (scheduledAutoSubmit !== undefined) {
+			clearTimeout(scheduledAutoSubmit);
+			scheduledAutoSubmit = undefined;
+		}
 	};
 
 	const syncSessionState = (ctx: ExtensionContext) => {
@@ -97,9 +185,35 @@ export default function (pi: ExtensionAPI) {
 		return { cancel: true };
 	});
 
-	pi.on("session_start", async () => {
+	pi.on("session_shutdown", async () => {
+		clearScheduledAutoSubmit();
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		clearScheduledAutoSubmit();
 		state.sessionKey = null;
 		resetReminderState();
+
+		const pending = getPendingHandoffLiteState(ctx);
+		if (!pending) return;
+
+		scheduledAutoSubmit = setTimeout(() => {
+			scheduledAutoSubmit = undefined;
+			void (async () => {
+				try {
+					pi.appendEntry(HANDOFF_LITE_STATE_TYPE, { kind: "dispatched", token: pending.token });
+					await pi.sendUserMessage(pending.prompt);
+					pi.appendEntry(HANDOFF_LITE_STATE_TYPE, { kind: "submitted", token: pending.token });
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					pi.appendEntry(HANDOFF_LITE_STATE_TYPE, { kind: "failed", token: pending.token, error: message });
+					if (ctx.hasUI) {
+						ctx.ui.setEditorText(pending.prompt);
+						ctx.ui.notify(`handoff-lite auto-submit failed: ${message}. Prompt restored to editor.`, "warning");
+					}
+				}
+			})();
+		}, 0);
 	});
 
 	pi.registerCommand("handoff-lite", {
@@ -116,10 +230,8 @@ export default function (pi: ExtensionAPI) {
 				? `${goal}\n\n/skill:session-query\n\n**Parent session:** \`${parentSession}\`\n\n## Handoff Notes\nThis handoff skipped automatic summarization (handoff-lite).\nStart by querying the parent session for:\n- main goal\n- key decisions\n- files modified\n- open issues and next steps`
 				: `${goal}\n\n## Handoff Notes\nThis handoff skipped automatic summarization (handoff-lite), and no parent session file is available.`;
 
-			const newSessionResult = await ctx.newSession({ parentSession });
-			if (newSessionResult.cancelled) return;
-
-			pi.sendUserMessage(promptBody);
+			const started = await startHandoffLiteSession(ctx, promptBody, parentSession);
+			if (!started) return;
 		},
 	});
 
