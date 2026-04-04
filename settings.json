@@ -3,7 +3,7 @@
   "spinnerVerbs": "random",
   "packages": [
     {
-      "source": "git:github.com/ppowo/pi-amplike@039bc359480a3d7bc7799057ffcc4094ac4935c0",
+      "source": "npm:pi-amplike",
       "extensions": ["extensions/handoff.ts", "extensions/session-query.ts"],
       "skills": ["skills/session-query/SKILL.md"]
     },
