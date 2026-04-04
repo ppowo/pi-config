@@ -43,8 +43,8 @@ function getThresholds(provider: string, modelId: string): ReminderThreshold[] {
 
 const RESET_BELOW_PERCENT = 64;
 const HIGH_USAGE_REPEAT_EVERY_TURNS = 4;
-const HANDOFF_GUIDANCE = "Use /handoff <goal> before the context overflows.";
-
+const HANDOFF_GUIDANCE = "Use /handoff <goal> while there's still room, or /handoff-lite <goal> if the context is already tight.";
+const HANDOFF_LITE_GUIDANCE = "Use /handoff-lite <goal> before the context overflows.";
 const tokenFormatter = new Intl.NumberFormat("en-US");
 
 type ReminderState = {
@@ -67,6 +67,12 @@ function getCrossedThresholdIndex(percent: number, thresholds: ReminderThreshold
 		if (percent >= thresholds[i].percent) crossed = i;
 	}
 	return crossed;
+}
+
+function getGuidance(crossedThreshold: number, thresholds: ReminderThreshold[]): string {
+	const highestThresholdIndex = thresholds.length - 1;
+	if (highestThresholdIndex <= 0) return HANDOFF_LITE_GUIDANCE;
+	return crossedThreshold >= 1 ? HANDOFF_LITE_GUIDANCE : HANDOFF_GUIDANCE;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -92,7 +98,7 @@ export default function (pi: ExtensionAPI) {
 	// Disable all compaction paths. User should hand off instead.
 	pi.on("session_before_compact", async (_event, ctx) => {
 		if (ctx.hasUI) {
-			ctx.ui.notify(`Compaction is disabled in this setup. ${HANDOFF_GUIDANCE}`, "warning");
+			ctx.ui.notify(`Compaction is disabled in this setup. ${HANDOFF_LITE_GUIDANCE}`, "warning");
 		}
 		return { cancel: true };
 	});
@@ -138,8 +144,9 @@ export default function (pi: ExtensionAPI) {
 		const sendReminder = (repeatUrgent = false) => {
 			const threshold = thresholds[crossedThreshold];
 			const prefix = repeatUrgent ? "Still near context limit" : `Context ${threshold.label}`;
+			const guidance = getGuidance(crossedThreshold, thresholds);
 			ctx.ui.notify(
-				`${prefix}: ${percent.toFixed(1)}% on ${modelLabel} (${usedTokens}/${totalTokens}, ${remainingTokens} left). ${HANDOFF_GUIDANCE}`,
+				`${prefix}: ${percent.toFixed(1)}% on ${modelLabel} (${usedTokens}/${totalTokens}, ${remainingTokens} left). ${guidance}`,
 				threshold.notifyType,
 			);
 		};

@@ -21,7 +21,8 @@
   ],
   "extensions": [
     "extensions/grep-trim.ts",
-    "extensions/bash-trim.ts"
+    "extensions/bash-trim.ts",
+    "extensions/handoff-lite.ts"
   ],
   "compaction": {
     "enabled": false
