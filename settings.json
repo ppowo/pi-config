@@ -17,7 +17,8 @@
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
-    "npm:pi-system-reminders"
+    "npm:pi-system-reminders",
+    "npm:pi-bash-bg"
   ],
   "extensions": [
     "extensions/grep-trim.ts",
