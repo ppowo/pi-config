@@ -380,6 +380,22 @@ const compile = (messages: Message[]): string => {
 	return redact(formatSummary(data));
 };
 
+const HANDOFF_LITE_PROMPT_PREFIX = "/skill:session-query Continue this task from the parent session below.";
+const HANDOFF_LITE_QUERY_INSTRUCTION =
+	"Before doing anything else, use `session_query` on the parent session above to recover only the context needed to continue from there. Start with targeted questions about the latest task state, relevant files or changes, and any remaining work or blockers. Then continue the goal.";
+
+const isSyntheticHandoffLitePrompt = (text: string): boolean => {
+	const trimmed = text.trim();
+	if (!trimmed.startsWith(HANDOFF_LITE_PROMPT_PREFIX)) return false;
+	if (!trimmed.includes("**Goal:**")) return false;
+	if (!trimmed.includes("**Parent session:**")) return false;
+	return trimmed.includes(HANDOFF_LITE_QUERY_INSTRUCTION)
+		|| trimmed.includes("Before doing anything else, use `session_query` on the parent session above");
+};
+
+const stripSyntheticHandoffLiteMessages = (messages: Message[]): Message[] =>
+	messages.filter((msg) => msg.role !== "user" || !isSyntheticHandoffLitePrompt(textOf(msg.content)));
+
 // ─── session JSONL reader ────────────────────────────────────────────────────
 
 const loadSessionMessages = (sessionFile: string): Message[] => {
@@ -392,7 +408,7 @@ const loadSessionMessages = (sessionFile: string): Message[] => {
 			if (entry.type === "message" && entry.message) rawMessages.push(entry.message);
 		} catch {}
 	}
-	return convertToLlm(rawMessages);
+	return stripSyntheticHandoffLiteMessages(convertToLlm(rawMessages));
 };
 
 // ─── handoff-lite ────────────────────────────────────────────────────────────
@@ -414,16 +430,13 @@ function setPendingHandoffLite(data: PendingHandoffLite) {
 }
 
 function buildHandoffLitePrompt(goal: string, parentSession: string, summary: string): string {
-	return `/skill:session-query Continue this task from the parent session below.
-
-**Goal:** ${goal}
-
-**Parent session summary:**
-${summary}
-
-**Parent session:** \`${parentSession}\`
-
-Before doing anything else, use \`session_query\` on the parent session above to recover only the context needed to continue from there. Start with targeted questions about the latest task state, relevant files or changes, and any remaining work or blockers. Then continue the goal.`;
+	return [
+		HANDOFF_LITE_PROMPT_PREFIX,
+		`**Goal:** ${goal}`,
+		`**Parent session summary:**\n${summary}`,
+		`**Parent session:** \`${parentSession}\``,
+		HANDOFF_LITE_QUERY_INSTRUCTION,
+	].join("\n\n");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -453,7 +466,8 @@ export default function (pi: ExtensionAPI) {
 			let summary = "(no summary available)";
 			try {
 				const messages = loadSessionMessages(parentSession);
-				if (messages.length > 0) summary = compile(messages);
+				const compiled = messages.length > 0 ? compile(messages).trim() : "";
+				if (compiled) summary = compiled;
 			} catch {}
 
 			setPendingHandoffLite({ prompt: buildHandoffLitePrompt(goal, parentSession, summary) });
