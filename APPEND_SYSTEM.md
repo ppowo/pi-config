@@ -8,5 +8,4 @@
 # Search Tools
 - `codespelunker` — ranked, structural search (implementations, declarations, concepts)
 - `grep` — exact regex, raw output, pipelines
-- When trimmed grep output includes `Full output: /tmp/...`, use `read` on that path if you need more matches or context.
 - When trimmed bash output includes `Full output: /tmp/...`, use `read` on that path if you need more command output or context.
