@@ -18,8 +18,7 @@
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
     "npm:pi-system-reminders",
-    "npm:pi-bash-bg",
-    "npm:@mcowger/pi-better-messages-cache"
+    "npm:pi-bash-bg"
   ],
   "extensions": [
     "extensions/grep-trim.ts",
