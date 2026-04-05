@@ -4,8 +4,13 @@
   "packages": [
     {
       "source": "npm:pi-amplike",
-      "extensions": ["extensions/handoff.ts", "extensions/session-query.ts"],
-      "skills": ["skills/session-query/SKILL.md"]
+      "extensions": [
+        "extensions/handoff.ts",
+        "extensions/session-query.ts"
+      ],
+      "skills": [
+        "skills/session-query/SKILL.md"
+      ]
     },
     "npm:pi-context-zone",
     "npm:pi-scurl",
@@ -19,7 +24,7 @@
     "npm:pi-hashline-readmap",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
-    "@coctostan/pi-exa-gh-web-tools"
+    "npm:@coctostan/pi-exa-gh-web-tools"
   ],
   "extensions": [
     "extensions/bash-trim.ts",
