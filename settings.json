@@ -18,10 +18,10 @@
     "npm:@robhowley/spinner-verbs",
     "npm:pi-hashline-readmap",
     "npm:pi-system-reminders",
-    "npm:pi-bash-bg"
+    "npm:pi-bash-bg",
+    "@coctostan/pi-exa-gh-web-tools"
   ],
   "extensions": [
-    "extensions/grep-trim.ts",
     "extensions/bash-trim.ts",
     "extensions/handoff-lite.ts"
   ],
