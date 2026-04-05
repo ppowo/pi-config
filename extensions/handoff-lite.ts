@@ -3,6 +3,26 @@
  *
  * Summarization pipeline adapted from pi-vcc (MIT License)
  * https://github.com/sting8k/pi-vcc — Copyright (c) sting8k
+ *
+ * Upstream sync note:
+ * - This file intentionally inlines the pi-vcc summarization pipeline because pi extensions
+ *   are loaded independently and can't import sibling extension files.
+ * - Current sync target reviewed against pi-vcc commit:
+ *   2b3e7f706ecc0405065e9b2fb08ff9eb401f17d5 (v0.2.2)
+ * - On future pi-vcc updates, inspect these upstream files for summarization changes:
+ *   src/core/summarize.ts        (overall pipeline; merge logic is intentionally NOT copied here)
+ *   src/core/normalize.ts        (message -> normalized blocks)
+ *   src/core/filter-noise.ts     (noise stripping)
+ *   src/core/build-sections.ts   (turns/actions/outstanding-context extraction)
+ *   src/core/format.ts           (section rendering)
+ *   src/core/redact.ts           (secret redaction)
+ *   src/core/content.ts          (text helpers)
+ *   src/core/sanitize.ts         (text cleanup)
+ *   src/core/tool-args.ts        (path/tool arg extraction)
+ *   src/extract/goals.ts         (goal extraction)
+ *   src/extract/files.ts         (file activity extraction)
+ *   src/extract/findings.ts      (important evidence extraction)
+ *   src/extract/preferences.ts   (user preference extraction)
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -203,32 +223,24 @@ const extractFiles = (blocks: NormalizedBlock[]) => {
 };
 
 // ─── extract: findings ───────────────────────────────────────────────────────
-
 const FINDING_NOISE_TOOLS = new Set(["TodoWrite", "ToolSearch", "Skill"]);
-const FINDING_RE = /\b(fail|error|broken|cannot|bug|issue|root cause|leak|crash|timeout)\b/i;
-
 const truncateText = (text: string, limit = 128): string => {
 	const flat = text.replace(/\s+/g, " ").trim();
 	const words = flat.split(/\s+/).filter(Boolean);
 	if (words.length <= limit) return flat;
 	return words.slice(0, limit).join(" ") + "...(truncated)";
 };
-
 const extractFindings = (blocks: NormalizedBlock[]): string[] => {
 	const results: string[] = [];
 	const seen = new Set<string>();
 	for (const b of blocks) {
-		const text = b.kind === "tool_result" || b.kind === "assistant" || b.kind === "user"
-			? (b as any).text?.trim() : undefined;
+		// Keep evidence factual: extract only from non-error tool results, not assistant interpretations.
+		if (b.kind !== "tool_result") continue;
+		if (b.isError) continue;
+		if (FINDING_NOISE_TOOLS.has(b.name)) continue;
+		const text = b.text?.trim();
 		if (!text || text.length < 20) continue;
-		let label = "";
-		if (b.kind === "tool_result") {
-			if (b.isError) continue;
-			if (FINDING_NOISE_TOOLS.has(b.name)) continue;
-			label = `[${b.name}] ${truncateText(text)}`;
-		} else if (b.kind === "assistant" && FINDING_RE.test(text)) {
-			label = truncateText(text);
-		} else { continue; }
+		const label = `[${b.name}] ${truncateText(text)}`;
 		const key = label.toLowerCase();
 		if (seen.has(key)) continue;
 		seen.add(key);
