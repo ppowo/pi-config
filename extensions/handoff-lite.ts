@@ -1,28 +1,8 @@
 /**
- * handoff-lite — start a new pi session with a VCC algorithmic summary + session_query.
+ * handoff-lite — start a new pi session with a compact handoff summary + session_query.
  *
- * Summarization pipeline adapted from pi-vcc (MIT License)
- * https://github.com/sting8k/pi-vcc — Copyright (c) sting8k
- *
- * Upstream sync note:
- * - This file intentionally inlines the pi-vcc summarization pipeline because pi extensions
- *   are loaded independently and can't import sibling extension files.
- * - Current sync target reviewed against pi-vcc commit:
- *   8487c9d55e119aa3de270cdf552b6b88eb374b39 (post-v0.3.0 main)
- * - On future pi-vcc updates, inspect these upstream files for summarization changes:
- *   src/core/summarize.ts        (overall pipeline; merge logic is intentionally NOT copied here)
- *   src/core/brief.ts            (brief transcript rendering)
- *   src/core/normalize.ts        (message -> normalized blocks)
- *   src/core/filter-noise.ts     (noise stripping)
- *   src/core/build-sections.ts   (sections + outstanding context)
- *   src/core/format.ts           (section rendering + brief cap)
- *   src/core/redact.ts           (secret redaction)
- *   src/core/content.ts          (text helpers)
- *   src/core/sanitize.ts         (text cleanup)
- *   src/core/tool-args.ts        (path/tool arg extraction)
- *   src/extract/goals.ts         (goal extraction)
- *   src/extract/files.ts         (file activity extraction)
- *   src/extract/preferences.ts   (user preference extraction)
+ * Originally adapted from pi-vcc (MIT License), but intentionally simplified here for
+ * handoff-lite so the injected summary stays short and high-signal for the next model.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -44,7 +24,6 @@ interface SectionData {
 	filesAndChanges: string[];
 	outstandingContext: string[];
 	userPreferences: string[];
-	briefTranscript: string;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -56,6 +35,24 @@ const nonEmptyLines = (text: string): string[] =>
 
 const firstLine = (text: string, max = 200): string =>
 	clip(text.split("\n")[0] ?? "", max);
+
+const normalizeComparableText = (text: string): string =>
+	text.toLowerCase().replace(/\s+/g, " ").trim();
+
+// Avoid duplicating goal-style user requests into Outstanding Context when the
+// same blocker phrase already appears in Session Goal (for example: "Fix the build failure").
+
+const matchesSessionGoal = (line: string, sessionGoals: string[]): boolean => {
+	const normalizedLine = normalizeComparableText(line);
+	if (!normalizedLine) return false;
+	return sessionGoals.some((goal) => {
+		if (goal === "[Scope change]") return false;
+		const normalizedGoal = normalizeComparableText(goal);
+		return normalizedGoal === normalizedLine
+			|| normalizedGoal.startsWith(normalizedLine)
+			|| normalizedLine.startsWith(normalizedGoal);
+	});
+};
 
 const textOf = (content: Message["content"]): string => {
 	if (!content) return "";
@@ -85,27 +82,6 @@ const SENSITIVE_RE =
 const redact = (text: string): string =>
 	text.replace(SENSITIVE_RE, (match) => `${match.split(/[=:\s]+/)[0]} [REDACTED]`);
 
-const TOK_RE = /[a-zA-Z]+|[0-9]+|[^\sa-zA-Z0-9]|\s+/g;
-
-const truncateTokens = (text: string, limit: number): string => {
-	const flat = text.replace(/\s+/g, " ").trim();
-	const matches = flat.match(TOK_RE);
-	if (!matches) return flat;
-
-	let count = 0;
-	let cut = matches.length;
-	for (let i = 0; i < matches.length; i++) {
-		if (!matches[i].trim()) continue;
-		count += 1;
-		if (count > limit) {
-			cut = i;
-			break;
-		}
-	}
-
-	if (cut >= matches.length) return flat;
-	return matches.slice(0, cut).join("") + "...(truncated)";
-};
 
 // ─── normalize ───────────────────────────────────────────────────────────────
 
@@ -300,120 +276,13 @@ const extractPreferences = (blocks: NormalizedBlock[]): string[] => {
 
 // ─── brief transcript ────────────────────────────────────────────────────────
 
-const TRUNCATE_USER = 256;
-const TRUNCATE_ASSISTANT = 128;
-
-const TOOL_SUMMARY_FIELDS: Record<string, string> = {
-	Read: "file_path",
-	Edit: "file_path",
-	Write: "file_path",
-	read: "file_path",
-	edit: "file_path",
-	write: "file_path",
-	Glob: "pattern",
-	Grep: "pattern",
-	glob: "pattern",
-	grep: "pattern",
-	ast_search: "pattern",
-};
-
-const toolOneLiner = (name: string, args: Record<string, unknown>): string => {
-	const field = TOOL_SUMMARY_FIELDS[name];
-	if (field && typeof args[field] === "string") {
-		return `* ${name} "${args[field] as string}"`;
-	}
-
-	const path = extractPath(args);
-	if (path) return `* ${name} "${path}"`;
-
-	if (name === "bash" || name === "Bash" || name === "nu") {
-		const cmd = (args.command ?? args.description ?? "") as string;
-		if (cmd.length > 60) return `* ${name} "${redact(cmd.slice(0, 57))}..."`;
-		return `* ${name} "${redact(cmd)}"`;
-	}
-
-	if (typeof args.query === "string") return `* ${name} "${clip(args.query as string, 60)}"`;
-	return `* ${name}`;
-};
-
-interface BriefLine {
-	header: string;
-	lines: string[];
-}
-
-const compileBrief = (blocks: NormalizedBlock[]): string => {
-	const sections: BriefLine[] = [];
-	let lastHeader = "";
-
-	const push = (header: string, line: string) => {
-		if (header === lastHeader && sections.length > 0) {
-			sections[sections.length - 1].lines.push(line);
-			return;
-		}
-		sections.push({ header, lines: [line] });
-		lastHeader = header;
-	};
-
-	for (const block of blocks) {
-		switch (block.kind) {
-			case "user": {
-				const text = truncateTokens(block.text, TRUNCATE_USER);
-				if (text) {
-					const ref = block.sourceIndex != null ? ` (#${block.sourceIndex})` : "";
-					push("[user]", text + ref);
-				}
-				lastHeader = "[user]";
-				break;
-			}
-			case "assistant": {
-				const text = truncateTokens(block.text, TRUNCATE_ASSISTANT);
-				if (text) {
-					const ref = block.sourceIndex != null ? ` (#${block.sourceIndex})` : "";
-					push("[assistant]", text + ref);
-				}
-				break;
-			}
-			case "tool_call": {
-				const ref = block.sourceIndex != null ? ` (#${block.sourceIndex})` : "";
-				push("[assistant]", toolOneLiner(block.name, block.args) + ref);
-				break;
-			}
-			case "tool_result": {
-				if (block.isError) {
-					const ref = block.sourceIndex != null ? ` (#${block.sourceIndex})` : "";
-					const header = `[tool_error] ${block.name}${ref}`;
-					push(header, firstLine(block.text, 150));
-					lastHeader = header;
-				}
-				break;
-			}
-			case "thinking":
-				break;
-		}
-	}
-
-	const out: string[] = [];
-	for (let i = 0; i < sections.length; i++) {
-		const section = sections[i];
-		if (i > 0) {
-			const prev = sections[i - 1];
-			const prevIsTools = prev.header === "[assistant]" && prev.lines.every((line) => line.startsWith("* "));
-			const curIsTools = section.header === "[assistant]" && section.lines.every((line) => line.startsWith("* "));
-			if (!(prevIsTools && curIsTools)) out.push("");
-		}
-		out.push(section.header);
-		for (const line of section.lines) out.push(line);
-	}
-
-	return out.join("\n");
-};
 
 // ─── build sections ──────────────────────────────────────────────────────────
 
 const BLOCKER_RE =
 	/\b(fail(ed|s|ure|ing)?|broken|cannot|can't|won't work|does not work|doesn't work|still (broken|failing|wrong)|blocked|blocker|not (fixed|resolved|working)|crash(es|ed|ing)?)\b/i;
 
-const extractOutstandingContext = (blocks: NormalizedBlock[]): string[] => {
+const extractOutstandingContext = (blocks: NormalizedBlock[], sessionGoals: string[]): string[] => {
 	const items: string[] = [];
 	for (const block of blocks.slice(-20)) {
 		if (block.kind === "tool_result" && block.isError) {
@@ -423,6 +292,7 @@ const extractOutstandingContext = (blocks: NormalizedBlock[]): string[] => {
 		if (block.kind === "assistant" || block.kind === "user") {
 			for (const line of nonEmptyLines(block.text)) {
 				if (!BLOCKER_RE.test(line) || line.length < 15) continue;
+				if (block.kind === "user" && matchesSessionGoal(line, sessionGoals)) continue;
 				const clipped = block.kind === "user" ? `[user] ${clip(line, 150)}` : clip(line, 150);
 				if (!items.includes(clipped)) items.push(clipped);
 				break;
@@ -431,7 +301,6 @@ const extractOutstandingContext = (blocks: NormalizedBlock[]): string[] => {
 	}
 	return items.slice(0, 5);
 };
-
 const formatFileActivity = (blocks: NormalizedBlock[]): string[] => {
 	const activity = extractFiles(blocks);
 	const lines: string[] = [];
@@ -440,20 +309,20 @@ const formatFileActivity = (blocks: NormalizedBlock[]): string[] => {
 		if (arr.length <= limit) return arr.join(", ");
 		return arr.slice(0, limit).join(", ") + ` (+${arr.length - limit} more)`;
 	};
-
 	if (activity.modified.size > 0) lines.push(`Modified: ${cap(activity.modified, 10)}`);
 	if (activity.created.size > 0) lines.push(`Created: ${cap(activity.created, 10)}`);
-	if (activity.read.size > 0) lines.push(`Read: ${cap(activity.read, 10)}`);
 	return lines;
 };
 
-const buildSections = (blocks: NormalizedBlock[]): SectionData => ({
-	sessionGoal: extractGoals(blocks),
-	filesAndChanges: formatFileActivity(blocks),
-	outstandingContext: extractOutstandingContext(blocks),
-	userPreferences: extractPreferences(blocks),
-	briefTranscript: compileBrief(blocks),
-});
+const buildSections = (blocks: NormalizedBlock[]): SectionData => {
+	const sessionGoal = extractGoals(blocks);
+	return {
+		sessionGoal,
+		filesAndChanges: formatFileActivity(blocks),
+		outstandingContext: extractOutstandingContext(blocks, sessionGoal),
+		userPreferences: extractPreferences(blocks),
+	};
+};
 
 // ─── format ──────────────────────────────────────────────────────────────────
 
@@ -463,31 +332,12 @@ const section = (title: string, items: string[]): string => {
 	return `[${title}]\n${body}`;
 };
 
-const BRIEF_MAX_LINES = 120;
-
-const capBrief = (text: string): string => {
-	const lines = text.split("\n");
-	if (lines.length <= BRIEF_MAX_LINES) return text;
-	const omitted = lines.length - BRIEF_MAX_LINES;
-	const kept = lines.slice(-BRIEF_MAX_LINES);
-	const firstHeader = kept.findIndex((line) => /^\[.+\]/.test(line));
-	const clean = firstHeader > 0 ? kept.slice(firstHeader) : kept;
-	return `...(${omitted} earlier lines omitted)\n\n${clean.join("\n")}`;
-};
-
-const formatSummary = (data: SectionData): string => {
-	const headerParts = [
-		section("Session Goal", data.sessionGoal),
-		section("Files And Changes", data.filesAndChanges),
-		section("Outstanding Context", data.outstandingContext),
-		section("User Preferences", data.userPreferences),
-	].filter(Boolean);
-
-	const parts: string[] = [];
-	if (headerParts.length > 0) parts.push(headerParts.join("\n\n"));
-	if (data.briefTranscript) parts.push(capBrief(data.briefTranscript));
-	return parts.join("\n\n---\n\n");
-};
+const formatSummary = (data: SectionData): string => [
+	section("Session Goal", data.sessionGoal),
+	section("Files And Changes", data.filesAndChanges),
+	section("Outstanding Context", data.outstandingContext),
+	section("User Preferences", data.userPreferences),
+].filter(Boolean).join("\n\n");
 
 // ─── compile ─────────────────────────────────────────────────────────────────
 
