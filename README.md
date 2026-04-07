@@ -9,13 +9,12 @@ It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config 
 - pi installed locally
 
 ## Setup
-
 From this repo root:
-
 ```bash
-npm install
 npm run setup
 ```
+
+No `npm install` needed — the bootstrap script uses only Node.js built-ins.
 
 ## What setup does
 
