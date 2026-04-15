@@ -5,9 +5,15 @@
 - Keep context lean. Prefer bounded reads with offsets/limits.
 - Use `!!command` for high-volume output; `!command` when output belongs in context.
 
+# File Exploration Policy
+- Use `ls` for single-directory listings.
+- Use `find` for recursive file discovery.
+- Use `nu` for structured data, filesystem analysis, and system inspection.
+- Use `bash` for executing project commands, not routine exploration.
 # Mandatory Code Search Policy
-- This policy applies to searching source-code contents, not to structured inspection with `nu`.
-- Use `nu` for filesystem exploration, structured data, and system inspection.
+- This policy applies to searching source-code contents, not to file exploration or structured inspection.
+- Use `ls` and `find` for file exploration.
+- Use `nu` for structured data and system inspection.
 - Do not start source-code exploration with `grep` or bash unless the task is explicitly exact text, literal, or regex matching.
 - Use `codespelunker` for first-pass code discovery: likely implementations, concepts, declarations, usages, comments, and strings.
 - Use `ast_search` for syntax-aware patterns such as imports, function calls, JSX, and specific code shapes.
