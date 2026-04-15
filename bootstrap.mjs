@@ -12,6 +12,11 @@ const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
 const EXTENSIONS_DIR = join(REPO_DIR, "extensions");
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
+const XDG_DATA_HOME = process.env.XDG_DATA_HOME ? resolve(process.env.XDG_DATA_HOME) : join(HOME, ".local", "share");
+const DEFAULT_VEX_BIN_DIR = process.platform === "linux"
+  ? join(XDG_DATA_HOME, "vex")
+  : join(HOME, ".local", "share", "vex");
+let vexBinDirPromise = null;
 
 const links = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
@@ -105,6 +110,38 @@ function quoteNuString(value) {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
+function summarizeWarningDetail(value, maxLength = 280) {
+  const normalized = String(value ?? "unknown error").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function printHugeNushellPluginWarning(skippedPlugins) {
+  if (skippedPlugins.length === 0) {
+    return;
+  }
+
+  const border = "!".repeat(100);
+  console.error("");
+  console.error(border);
+  console.error("!!! PI NUSHELL PLUGINS WERE SKIPPED DURING BOOTSTRAP !!!");
+  console.error(border);
+  console.error(`Skipped plugins: ${skippedPlugins.map(({ name }) => name).join(", ")}`);
+  console.error(`Config written without them: ${PI_NUSHELL_CONFIG}`);
+  console.error("Most likely cause: a Nushell/plugin version mismatch or a broken plugin binary.");
+  console.error("If you manage Nushell with vex, fix the stack and rerun bootstrap:");
+  console.error("  vex bin status nushell");
+  console.error("  vex bin sync");
+  console.error("");
+  for (const plugin of skippedPlugins) {
+    console.error(` - ${plugin.name} (${plugin.binary}): ${plugin.reason}`);
+  }
+  console.error(border);
+  console.error("");
+}
+
 async function writeManagedFile(path, content) {
   assertSafePath(path, [HOME]);
   await mkdir(dirname(path), { recursive: true });
@@ -151,7 +188,49 @@ async function capture(command, args, cwd, options = {}) {
   });
 }
 
+function managedCommandFilename(commandName) {
+  return process.platform === "win32" ? `${commandName}.exe` : commandName;
+}
+
+async function resolveVexBinDir() {
+  if (!vexBinDirPromise) {
+    vexBinDirPromise = (async () => {
+      try {
+        const output = await capture("vex", ["path"], REPO_DIR);
+        const resolvedPath = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+        if (resolvedPath) {
+          return isAbsolute(resolvedPath) ? resolvedPath : resolve(REPO_DIR, resolvedPath);
+        }
+      } catch {
+        // Fall back to the default managed bin location if vex is not callable here.
+      }
+      return DEFAULT_VEX_BIN_DIR;
+    })();
+  }
+
+  return await vexBinDirPromise;
+}
+
+async function resolveManagedCommandPath(commandName) {
+  const vexBinDir = await resolveVexBinDir();
+  const directPath = join(vexBinDir, managedCommandFilename(commandName));
+  if (existsSync(directPath)) {
+    return directPath;
+  }
+  if (process.platform === "win32" && !commandName.toLowerCase().endsWith(".exe")) {
+    const plainPath = join(vexBinDir, commandName);
+    if (existsSync(plainPath)) {
+      return plainPath;
+    }
+  }
+
+  return null;
+}
 async function resolveCommandPath(commandName) {
+  const managedPath = await resolveManagedCommandPath(commandName);
+  if (managedPath) {
+    return managedPath;
+  }
   if (process.platform === "win32") {
     try {
       const output = await capture("where", [commandName], REPO_DIR);
@@ -520,7 +599,7 @@ async function syncLocalExtensionPackages() {
 async function syncPiNushellPlugins() {
   const nuPath = await resolveCommandPath("nu");
   if (!nuPath) {
-    console.log("skip pi nushell bootstrap: nu not found in PATH");
+    console.log("skip pi nushell bootstrap: nu not found in vex-managed bin dir or PATH");
     return;
   }
 
@@ -529,44 +608,56 @@ async function syncPiNushellPlugins() {
   await rm(PI_NUSHELL_PLUGIN_REGISTRY, { force: true });
 
   const discoveredPlugins = [];
+  const skippedPlugins = [];
   for (const plugin of OPTIONAL_NUSHELL_PLUGINS) {
     const binaryPath = await resolveCommandPath(plugin.binary);
     if (!binaryPath) {
-      console.log(`skip optional nushell plugin (not found in PATH): ${plugin.binary}`);
+      const reason = "binary not found in vex-managed bin dir or PATH";
+      console.log(`skip optional nushell plugin (${reason}): ${plugin.binary}`);
+      skippedPlugins.push({ name: plugin.name, binary: plugin.binary, reason });
       continue;
     }
-
     console.log(`registering pi nushell plugin: ${plugin.name} (${binaryPath})`);
-    await run(
-      nuPath,
-      ["--no-config-file", "-c", "plugin add --plugin-config $env.PI_NUSHELL_PLUGIN_CONFIG $env.PI_NUSHELL_PLUGIN_BINARY"],
-      REPO_DIR,
-      {
-        env: {
-          PI_NUSHELL_PLUGIN_CONFIG: PI_NUSHELL_PLUGIN_REGISTRY,
-          PI_NUSHELL_PLUGIN_BINARY: binaryPath,
+    try {
+      await capture(
+        nuPath,
+        ["--no-config-file", "-c", "plugin add --plugin-config $env.PI_NUSHELL_PLUGIN_CONFIG $env.PI_NUSHELL_PLUGIN_BINARY"],
+        REPO_DIR,
+        {
+          env: {
+            PI_NUSHELL_PLUGIN_CONFIG: PI_NUSHELL_PLUGIN_REGISTRY,
+            PI_NUSHELL_PLUGIN_BINARY: binaryPath,
+          },
         },
-      },
-    );
-
-    discoveredPlugins.push({ ...plugin, binaryPath });
+      );
+      discoveredPlugins.push({ ...plugin, binaryPath });
+    } catch (error) {
+      const reason = summarizeWarningDetail(error instanceof Error ? error.message : error);
+      console.warn(`skip optional nushell plugin (failed to register): ${plugin.name}`);
+      console.warn(`  reason: ${reason}`);
+      skippedPlugins.push({ name: plugin.name, binary: plugin.binary, reason });
+    }
   }
-
   const configLines = [
     "# Generated by pi-config bootstrap.",
     `# Loads Nushell plugins from ${PI_NUSHELL_PLUGIN_REGISTRY}.`,
   ];
-
   for (const plugin of discoveredPlugins) {
     configLines.push(`plugin use --plugin-config ${quoteNuString(PI_NUSHELL_PLUGIN_REGISTRY)} ${plugin.name}`);
   }
-
   if (discoveredPlugins.length === 0) {
-    configLines.push("# No optional Nushell plugins found on PATH during setup.");
+    configLines.push("# No optional Nushell plugins were successfully registered during setup.");
   }
-
+  if (skippedPlugins.length > 0) {
+    configLines.push("#");
+    configLines.push("# !!! WARNING: SOME OPTIONAL NUSHELL PLUGINS WERE SKIPPED DURING BOOTSTRAP !!!");
+    for (const plugin of skippedPlugins) {
+      configLines.push(`# - ${plugin.name} (${plugin.binary}): ${plugin.reason}`);
+    }
+  }
   await writeManagedFile(PI_NUSHELL_CONFIG, configLines.join("\n") + "\n");
   console.log(`wrote pi nushell config: ${PI_NUSHELL_CONFIG}`);
+  printHugeNushellPluginWarning(skippedPlugins);
 }
 
 async function main() {

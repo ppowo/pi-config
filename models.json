@@ -6,11 +6,11 @@
       "api": "openai-completions",
       "models": [
         {
-          "id": "openrouter/hunter-alpha",
-          "name": "Hunter Alpha",
-          "reasoning": true,
+          "id": "openrouter/elephant-alpha",
+          "name": "Elephant Alpha",
+          "reasoning": false,
           "input": ["text"],
-          "contextWindow": 1048576,
+          "contextWindow": 262144,
           "maxTokens": 32768,
           "cost": {
             "input": 0,
