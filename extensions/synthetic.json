@@ -1,0 +1,8 @@
+{
+  "configVersion": "0.13.0",
+  "webSearch": false,
+  "quotasCommand": false,
+  "usageStatus": false,
+  "quotaWarnings": false,
+  "subBarIntegration": true
+}
