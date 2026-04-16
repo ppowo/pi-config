@@ -11,6 +11,7 @@ const HOME = resolve(homedir());
 const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
 const EXTENSIONS_DIR = join(REPO_DIR, "extensions");
+const PI_EXTENSIONS_DIR = join(PI_DIR, "extensions");
 const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 const XDG_DATA_HOME = process.env.XDG_DATA_HOME ? resolve(process.env.XDG_DATA_HOME) : join(HOME, ".local", "share");
 const DEFAULT_VEX_BIN_DIR = process.platform === "linux"
@@ -20,7 +21,6 @@ let vexBinDirPromise = null;
 
 const links = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
-  { link: join(PI_DIR, "extensions"), target: join(REPO_DIR, "extensions") },
   { link: join(PI_DIR, "skills"), target: join(REPO_DIR, "skills") },
   { link: join(PI_DIR, "themes"), target: join(REPO_DIR, "themes") },
   { link: join(PI_DIR, "reminders"), target: join(REPO_DIR, "reminders") },
@@ -34,6 +34,7 @@ const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json
 const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
 const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
+const MANAGED_EXTENSION_ENTRY_NAMES_STATE = join(PI_DIR, ".managed-extension-entry-names.json");
 const LOCAL_PACKAGES_STATE = join(PI_DIR, ".managed-local-packages.json");
 const PI_NUSHELL_DIR = join(HOME, ".config", "pi", "nushell");
 const PI_NUSHELL_CONFIG = join(PI_NUSHELL_DIR, "config.nu");
@@ -368,6 +369,59 @@ async function readJsonFile(path, fallback) {
   return JSON.parse(await readFile(path, "utf-8"));
 }
 
+async function syncExtensionLinks() {
+  assertSafePath(PI_EXTENSIONS_DIR, [HOME]);
+
+  if (existsSync(PI_EXTENSIONS_DIR)) {
+    const stat = await lstat(PI_EXTENSIONS_DIR);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      await rm(PI_EXTENSIONS_DIR, { recursive: true, force: true });
+    }
+  }
+
+  await mkdir(PI_EXTENSIONS_DIR, { recursive: true });
+
+  const previousManagedEntryNamesRaw = await readJsonFile(MANAGED_EXTENSION_ENTRY_NAMES_STATE, []);
+  const previousManagedEntryNames = Array.isArray(previousManagedEntryNamesRaw)
+    ? uniqueSorted(previousManagedEntryNamesRaw.filter((value) => typeof value === "string"))
+    : [];
+  const repoEntries = existsSync(EXTENSIONS_DIR)
+    ? (await readdir(EXTENSIONS_DIR, { withFileTypes: true }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+  const nextManagedEntryNames = uniqueSorted(repoEntries.map((entry) => entry.name));
+  const nextManagedEntryNameSet = new Set(nextManagedEntryNames);
+
+  for (const name of previousManagedEntryNames) {
+    if (nextManagedEntryNameSet.has(name)) {
+      continue;
+    }
+
+    const linkPath = join(PI_EXTENSIONS_DIR, name);
+    if (!existsSync(linkPath)) {
+      continue;
+    }
+
+    assertSafePath(linkPath, [HOME]);
+    await rm(linkPath, { recursive: true, force: true });
+    console.log(`removed stale managed extension entry ${linkPath}`);
+  }
+
+  for (const entry of repoEntries) {
+    await relink(join(PI_EXTENSIONS_DIR, entry.name), join(EXTENSIONS_DIR, entry.name));
+  }
+
+  if (nextManagedEntryNames.length > 0) {
+    await writeManagedFile(
+      MANAGED_EXTENSION_ENTRY_NAMES_STATE,
+      JSON.stringify(nextManagedEntryNames, null, 2) + "\n",
+    );
+  } else {
+    assertSafePath(MANAGED_EXTENSION_ENTRY_NAMES_STATE, [HOME]);
+    await rm(MANAGED_EXTENSION_ENTRY_NAMES_STATE, { force: true });
+  }
+}
+
 async function loadExistingJson(targetPath) {
   if (!existsSync(targetPath)) {
     return {};
@@ -668,6 +722,8 @@ async function main() {
   for (const { link, target } of links) {
     await relink(link, target);
   }
+
+  await syncExtensionLinks();
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
