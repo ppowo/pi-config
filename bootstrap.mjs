@@ -143,9 +143,13 @@ function printHugeNushellPluginWarning(skippedPlugins) {
   console.error("");
 }
 
+async function ensureParentDir(path) {
+  await mkdir(dirname(path), { recursive: true });
+}
+
 async function writeManagedFile(path, content) {
   assertSafePath(path, [HOME]);
-  await mkdir(dirname(path), { recursive: true });
+  await ensureParentDir(path);
 
   if (existsSync(path)) {
     const stat = await lstat(path);
@@ -157,36 +161,59 @@ async function writeManagedFile(path, content) {
   await writeFile(path, content);
 }
 
-async function capture(command, args, cwd, options = {}) {
+async function execCommand(command, args, cwd, options = {}) {
+  const captureOutput = options.captureOutput !== false;
+
   return await new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...(options.env ?? {}) },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
       shell: false,
     });
 
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf-8");
-    });
+    if (captureOutput) {
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf-8");
+      });
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf-8");
-    });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString("utf-8");
+      });
+    }
 
     child.on("error", rejectPromise);
     child.on("close", (code) => {
       if (code === 0) {
-        resolvePromise(stdout.trim());
-      } else {
+        resolvePromise(captureOutput ? stdout.trim() : "");
+        return;
+      }
+
+      if (captureOutput) {
         const detail = stderr.trim() || stdout.trim() || `exit code ${code}`;
         rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd}: ${detail}`));
+        return;
       }
+
+      rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd} with exit code ${code}`));
     });
   });
+}
+
+function firstNonEmptyLine(value) {
+  return value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
+}
+
+function resolveOutputPath(output, cwd = REPO_DIR) {
+  const resolvedPath = firstNonEmptyLine(output);
+  if (!resolvedPath) {
+    return null;
+  }
+
+  return isAbsolute(resolvedPath) ? resolvedPath : resolve(cwd, resolvedPath);
 }
 
 function managedCommandFilename(commandName) {
@@ -197,10 +224,10 @@ async function resolveVexBinDir() {
   if (!vexBinDirPromise) {
     vexBinDirPromise = (async () => {
       try {
-        const output = await capture("vex", ["path"], REPO_DIR);
-        const resolvedPath = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+        const output = await execCommand("vex", ["path"], REPO_DIR);
+        const resolvedPath = resolveOutputPath(output);
         if (resolvedPath) {
-          return isAbsolute(resolvedPath) ? resolvedPath : resolve(REPO_DIR, resolvedPath);
+          return resolvedPath;
         }
       } catch {
         // Fall back to the default managed bin location if vex is not callable here.
@@ -227,6 +254,7 @@ async function resolveManagedCommandPath(commandName) {
 
   return null;
 }
+
 async function resolveCommandPath(commandName) {
   const managedPath = await resolveManagedCommandPath(commandName);
   if (managedPath) {
@@ -234,20 +262,16 @@ async function resolveCommandPath(commandName) {
   }
   if (process.platform === "win32") {
     try {
-      const output = await capture("where", [commandName], REPO_DIR);
-      return output.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
+      const output = await execCommand("where", [commandName], REPO_DIR);
+      return firstNonEmptyLine(output);
     } catch {
       return null;
     }
   }
 
   try {
-    const output = await capture("/bin/sh", ["-lc", `command -v ${quoteForPosixShell(commandName)}`], REPO_DIR);
-    const resolvedPath = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-    if (!resolvedPath) {
-      return null;
-    }
-    return isAbsolute(resolvedPath) ? resolvedPath : resolve(REPO_DIR, resolvedPath);
+    const output = await execCommand("/bin/sh", ["-lc", `command -v ${quoteForPosixShell(commandName)}`], REPO_DIR);
+    return resolveOutputPath(output);
   } catch {
     return null;
   }
@@ -309,7 +333,6 @@ function setPathValue(target, path, value) {
 
   current[path[path.length - 1]] = value;
 }
-
 function deletePathValue(target, path) {
   if (path.length === 0) {
     return;
@@ -361,12 +384,26 @@ function uniqueSorted(values) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-async function readJsonFile(path, fallback) {
+async function readJsonFile(path, fallback, options = {}) {
   if (!existsSync(path)) {
     return fallback;
   }
 
+  if (options.removeSymbolicLink) {
+    const stat = await lstat(path);
+    if (stat.isSymbolicLink()) {
+      await rm(path, { force: true });
+      return fallback;
+    }
+  }
+
   return JSON.parse(await readFile(path, "utf-8"));
+}
+
+async function writeJsonFile(path, value) {
+  assertSafePath(path, [HOME]);
+  await ensureParentDir(path);
+  await writeFile(path, JSON.stringify(value, null, 2) + "\n");
 }
 
 async function syncExtensionLinks() {
@@ -412,28 +449,11 @@ async function syncExtensionLinks() {
   }
 
   if (nextManagedEntryNames.length > 0) {
-    await writeManagedFile(
-      MANAGED_EXTENSION_ENTRY_NAMES_STATE,
-      JSON.stringify(nextManagedEntryNames, null, 2) + "\n",
-    );
+    await writeJsonFile(MANAGED_EXTENSION_ENTRY_NAMES_STATE, nextManagedEntryNames);
   } else {
     assertSafePath(MANAGED_EXTENSION_ENTRY_NAMES_STATE, [HOME]);
     await rm(MANAGED_EXTENSION_ENTRY_NAMES_STATE, { force: true });
   }
-}
-
-async function loadExistingJson(targetPath) {
-  if (!existsSync(targetPath)) {
-    return {};
-  }
-
-  const stat = await lstat(targetPath);
-  if (stat.isSymbolicLink()) {
-    await rm(targetPath, { force: true });
-    return {};
-  }
-
-  return JSON.parse(await readFile(targetPath, "utf-8"));
 }
 
 async function mergeJsonOverlay(
@@ -444,7 +464,7 @@ async function mergeJsonOverlay(
 ) {
   const overlayExists = existsSync(overlayPath);
   const previousOwnedPaths = uniqueSorted(await readJsonFile(ownedStatePath, []));
-  const existing = await loadExistingJson(targetPath);
+  const existing = await readJsonFile(targetPath, {}, { removeSymbolicLink: true });
 
   if (!overlayExists) {
     if (previousOwnedPaths.length === 0) {
@@ -457,8 +477,7 @@ async function mergeJsonOverlay(
       deletePathValue(cleaned, key.split(".").filter(Boolean));
     }
 
-    await mkdir(dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, JSON.stringify(cleaned, null, 2) + "\n");
+    await writeJsonFile(targetPath, cleaned);
     await rm(ownedStatePath, { force: true });
     console.log(`cleared ${label} managed keys from ${targetPath}`);
     return;
@@ -471,9 +490,7 @@ async function mergeJsonOverlay(
 
   const currentOwnedPaths = uniqueSorted(collectLeafPaths(overlay));
   const ownedPathsToApply = uniqueSorted([...previousOwnedPaths, ...currentOwnedPaths]);
-
   const merged = deepMerge(existing, overlay);
-
   for (const key of ownedPathsToApply) {
     const path = key.split(".").filter(Boolean);
     const { found, value } = getPathValue(overlay, path);
@@ -485,11 +502,10 @@ async function mergeJsonOverlay(
     }
   }
 
-  await mkdir(dirname(targetPath), { recursive: true });
-  await writeFile(targetPath, JSON.stringify(merged, null, 2) + "\n");
+  await writeJsonFile(targetPath, merged);
 
   if (currentOwnedPaths.length > 0) {
-    await writeFile(ownedStatePath, JSON.stringify(currentOwnedPaths, null, 2) + "\n");
+    await writeJsonFile(ownedStatePath, currentOwnedPaths);
   } else {
     await rm(ownedStatePath, { force: true });
   }
@@ -497,14 +513,10 @@ async function mergeJsonOverlay(
   console.log(`merged ${label} into ${targetPath}`);
 }
 
-function createLocalPackagesState(packages = {}) {
-  return { packages };
-}
-
 async function readLocalPackagesState() {
-  const raw = await readJsonFile(LOCAL_PACKAGES_STATE, createLocalPackagesState());
+  const raw = await readJsonFile(LOCAL_PACKAGES_STATE, { packages: {} });
   if (!isObject(raw) || !isObject(raw.packages)) {
-    return createLocalPackagesState();
+    return { packages: {} };
   }
 
   const packages = {};
@@ -513,12 +525,7 @@ async function readLocalPackagesState() {
       packages[normalizeRelPath(relPath)] = { fingerprint: meta.fingerprint };
     }
   }
-  return createLocalPackagesState(packages);
-}
-
-async function writeLocalPackagesState(state) {
-  await mkdir(dirname(LOCAL_PACKAGES_STATE), { recursive: true });
-  await writeFile(LOCAL_PACKAGES_STATE, JSON.stringify(state, null, 2) + "\n");
+  return { packages };
 }
 
 async function discoverLocalExtensionPackages() {
@@ -553,25 +560,6 @@ async function fingerprintLocalPackage(pkg) {
   return hash.digest("hex");
 }
 
-async function run(command, args, cwd, options = {}) {
-  await new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: { ...process.env, ...(options.env ?? {}) },
-      stdio: "inherit",
-      shell: false,
-    });
-    child.on("error", rejectPromise);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolvePromise();
-      } else {
-        rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd} with exit code ${code}`));
-      }
-    });
-  });
-}
-
 async function installLocalPackageDependencies(pkg, previousFingerprint) {
   const fingerprintBeforeInstall = await fingerprintLocalPackage(pkg);
   const hasNodeModules = existsSync(pkg.nodeModulesPath);
@@ -585,7 +573,7 @@ async function installLocalPackageDependencies(pkg, previousFingerprint) {
   const action = hasNodeModules ? "updating" : "installing";
 
   console.log(`${action} local package dependencies: ${pkg.relPath}`);
-  await run(NPM_COMMAND, installArgs, pkg.dir);
+  await execCommand(NPM_COMMAND, installArgs, pkg.dir, { captureOutput: false });
 
   const fingerprintAfterInstall = await fingerprintLocalPackage(pkg);
   return { relPath: pkg.relPath, fingerprint: fingerprintAfterInstall };
@@ -646,7 +634,7 @@ async function syncLocalExtensionPackages() {
     return;
   }
 
-  await writeLocalPackagesState(createLocalPackagesState(nextPackages));
+  await writeJsonFile(LOCAL_PACKAGES_STATE, { packages: nextPackages });
   console.log(`local extension package sync complete (${Object.keys(nextPackages).length} managed package(s))`);
 }
 
@@ -673,7 +661,7 @@ async function syncPiNushellPlugins() {
     }
     console.log(`registering pi nushell plugin: ${plugin.name} (${binaryPath})`);
     try {
-      await capture(
+      await execCommand(
         nuPath,
         ["--no-config-file", "-c", "plugin add --plugin-config $env.PI_NUSHELL_PLUGIN_CONFIG $env.PI_NUSHELL_PLUGIN_BINARY"],
         REPO_DIR,
