@@ -8,7 +8,7 @@ function isSmallModel(modelId: string) {
 }
 
 const smallModelToolHint =
-	"Small-model mode: verify with tools (don't guess). Prefer codespelunker/ast_search/grep/read/nu for discovery, use bash for execution, and keep reads bounded.";
+	"Small-model mode: verify with tools. For code discovery, start with codespelunker or ast_search; use grep only for exact text after you know the target. Search once, then read the best file or symbol. Keep reads bounded. Use bash mainly for execution.";
 
 export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
