@@ -1,6 +1,7 @@
 {
   "theme": "github-light-colorblind",
   "spinnerVerbs": "random",
+  "npmCommand": ["npm", "--legacy-peer-deps"],
   "packages": [
     {
       "source": "npm:pi-amplike",
@@ -27,7 +28,7 @@
     "npm:pi-verbosity-control",
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
-    "npm:pi-hashline-readmap",
+    "https://github.com/coctostan/pi-hashline-readmap",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
     "npm:@coctostan/pi-exa-gh-web-tools"
