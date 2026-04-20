@@ -18,7 +18,7 @@ export default function (pi: ExtensionAPI) {
 		on: "tool_execution_end",
 		when: () => consecutiveGrepCalls >= 3,
 		message:
-			"3 consecutive grep calls. Stop broad searching, pick the best hit, and `read` it. Use `grep` for exact text only; otherwise switch to `codespelunker` or `ast_search`.",
+			"3 consecutive grep calls. Stop broad searching, pick the best hit, and `read` it. If you still need search, prefer `codespelunker` here; use `grep` for exact text/regex.",
 		cooldown: 10,
 	};
 }
