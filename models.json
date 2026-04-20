@@ -3,23 +3,7 @@
     "openrouter": {
       "baseUrl": "https://openrouter.ai/api/v1",
       "apiKey": "OPENROUTER_API_KEY",
-      "api": "openai-completions",
-      "models": [
-        {
-          "id": "openrouter/elephant-alpha",
-          "name": "Elephant Alpha",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "cost": {
-            "input": 0,
-            "output": 0,
-            "cacheRead": 0,
-            "cacheWrite": 0
-          }
-        }
-      ]
+      "api": "openai-completions"
     }
   }
 }
