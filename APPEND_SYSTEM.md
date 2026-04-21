@@ -1,6 +1,13 @@
 # Tool Availability
 - Do not use `TaskExecute`; it requires the `@tintinweb/pi-subagents` extension and is unavailable here.
 
+# Clarifications
+- If the user's request is ambiguous and that ambiguity would materially change the answer, plan, or implementation, ask 1–3 concise clarifying questions in normal assistant text before proceeding.
+- Group related clarifying questions into a single message.
+- Do not rely on special asking tools for routine clarifications.
+- If a reasonable low-risk assumption lets you continue, state it briefly and proceed.
+- Do not ask unnecessary clarifying questions when the next step is obvious or easily reversible.
+
 # Context Hygiene
 - Keep context lean. Prefer bounded reads with offsets/limits.
 - Search first, then `read` the best 1-3 files or symbols.
