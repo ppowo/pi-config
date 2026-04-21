@@ -332,6 +332,37 @@ function isSatisfied(question: Question, state: QuestionState): boolean {
   return state.confirmed && validationError(question, state) === null;
 }
 
+type QuestionDisplayState = "pending" | "answered" | "clarification" | "skipped";
+
+function questionDisplayState(question: Question, state: QuestionState): QuestionDisplayState {
+  if (!hasAnswer(question, state)) return questionIsRequired(question) ? "pending" : "skipped";
+  if (state.freeText?.intent === "clarification_request") return "clarification";
+  return answerText(question, state) === null ? "pending" : "answered";
+}
+
+function questionTabDisplay(question: Question, state: QuestionState): {
+  label: string;
+  color: "dim" | "muted" | "warning" | "success";
+} {
+  const header = questionTabHeader(question);
+  const displayState = questionDisplayState(question, state);
+  if (displayState === "clarification") return { label: ` ask ${header} `, color: "warning" };
+  if (displayState === "answered") return { label: ` ok ${header} `, color: "success" };
+  if (displayState === "skipped") return { label: ` ${header} `, color: "dim" };
+  return { label: ` ${header} `, color: hasAnswer(question, state) ? "warning" : "muted" };
+}
+
+function questionSummaryBadge(question: Question, state: QuestionState): {
+  label: string;
+  color: "dim" | "warning" | "success";
+} {
+  const displayState = questionDisplayState(question, state);
+  if (displayState === "clarification") return { label: "[ask]", color: "warning" };
+  if (displayState === "answered") return { label: "[done]", color: "success" };
+  if (displayState === "skipped") return { label: "[skip]", color: "dim" };
+  return { label: "[pending]", color: "warning" };
+}
+
 function cancelledResult(questions: Question[]): Result {
   const containsFreeText: Record<string, boolean> = {};
   for (const key of questionKeys(questions)) containsFreeText[key] = false;
@@ -636,17 +667,15 @@ class AskUserQuestionComponent implements Component {
     const parts = [" "];
 
     for (let i = 0; i < this.questions.length; i++) {
-      const header = questionTabHeader(this.questions[i]);
+      const tab = questionTabDisplay(this.questions[i], this.states[i]);
       if (i === this.activeTab) {
-        parts.push(this.theme.bg("selectedBg", this.theme.fg("text", ` ${header} `)));
-      } else if (isSatisfied(this.questions[i], this.states[i])) {
-        parts.push(this.theme.fg("success", ` ■${header} `));
+        parts.push(this.theme.bg("selectedBg", this.theme.fg("text", tab.label)));
       } else {
-        parts.push(this.theme.fg("muted", `  ${header} `));
+        parts.push(this.theme.fg(tab.color, tab.label));
       }
     }
 
-    const submitLabel = " ✓ Submit ";
+    const submitLabel = " Submit ";
     const submitActive = this.activeTab === this.questions.length;
     parts.push(
       submitActive
@@ -682,44 +711,41 @@ class AskUserQuestionComponent implements Component {
         ? "accent"
         : "text";
 
-    let marker = " ";
-    if (specialKind) {
-      if (question.multiSelect) {
-        marker = specialValue
-          ? specialKind === "clarification_request"
-            ? this.theme.fg("warning", "[?]")
-            : this.theme.fg("success", "[✓]")
-          : this.theme.fg("dim", "[ ]");
-      } else {
-        marker = specialValue
-          ? specialKind === "clarification_request"
-            ? this.theme.fg("warning", "?")
-            : this.theme.fg("success", "✓")
-          : " ";
-      }
+    let markerText = question.multiSelect ? "[ ]" : "( )";
+    let markerColor: "dim" | "success" | "warning" | "accent" = "dim";
+    if (specialKind === "clarification_request") {
+      markerText = "[ask]";
+      markerColor = specialValue ? "warning" : "dim";
+    } else if (specialKind === "answer") {
+      markerText = "[text]";
+      markerColor = specialValue ? "success" : "dim";
     } else if (question.multiSelect) {
-      marker = state.selectedIndices.has(index)
-        ? this.theme.fg("accent", "[✓]")
-        : this.theme.fg("dim", "[ ]");
+      if (state.selectedIndices.has(index)) {
+        markerText = "[x]";
+        markerColor = "accent";
+      }
     } else if (state.selectedIndex === index) {
-      marker = this.theme.fg("success", "✓");
+      markerText = "(x)";
+      markerColor = "success";
     }
 
+    const marker = this.theme.fg(markerColor, markerText);
     add(
       `${prefix} ${marker} ${this.theme.fg(labelColor, `${index + 1}. ${option.label}`)}` +
-        (editingThis ? this.theme.fg("accent", " ✎") : ""),
+        (editingThis ? this.theme.fg("accent", " (editing)") : ""),
     );
 
-    const indent = question.multiSelect || specialKind ? "       " : "     ";
+    const indent = " ".repeat(markerText.length + 3);
     if (option.description) {
       for (const line of wrapTextWithAnsi(this.theme.fg("muted", option.description), width - indent.length)) {
         add(`${indent}${line}`);
       }
     }
-
     if (specialValue && !editingThis) {
       const color = specialKind === "clarification_request" ? "warning" : "dim";
-      add(`${indent}${this.theme.fg(color, `"${truncateToWidth(specialValue, width - indent.length)}"`)}`);
+      for (const line of wrapTextWithAnsi(this.theme.fg(color, `Current: "${specialValue}"`), width - indent.length)) {
+        add(`${indent}${line}`);
+      }
     }
   }
 
@@ -758,26 +784,24 @@ class AskUserQuestionComponent implements Component {
     }
 
     if (state.editingIntent) {
-      add(this.theme.fg("dim", " Enter submit · Esc back"));
+      add(this.theme.fg("dim", " Enter submit | Esc back"));
       return;
     }
-
     const selectedOption = options[state.cursorIndex];
     const specialKind = selectedOption?.specialKind;
     const tabHint = this.isSingle
       ? ""
       : specialKind
-        ? " · ←→ switch tabs"
-        : " · Tab/←→ switch tabs";
+        ? " | Left/Right switch tabs"
+        : " | Tab/Left/Right switch tabs";
     const actionHint = specialKind
       ? state.freeText?.intent === specialKind
-        ? "Enter confirm · Space/Tab edit"
+        ? "Enter confirm | Space/Tab edit"
         : "Space/Tab open editor"
       : question.multiSelect
-        ? "Space toggle · Enter confirm"
+        ? "Space toggle | Enter confirm"
         : "Enter select";
-
-    add(this.theme.fg("dim", ` ↑↓ navigate · ${actionHint}${tabHint} · Esc cancel`));
+    add(this.theme.fg("dim", ` Up/Down navigate | ${actionHint}${tabHint} | Esc cancel`));
   }
 
   private renderSubmitTab(add: (text: string) => void): void {
@@ -793,13 +817,23 @@ class AskUserQuestionComponent implements Component {
       const question = this.questions[i];
       const state = this.states[i];
       const header = questionTabHeader(question);
+      const displayState = questionDisplayState(question, state);
+      const badge = questionSummaryBadge(question, state);
       const text = answerText(question, state);
-      const color = state.freeText?.intent === "clarification_request" ? "warning" : "text";
-      if (text === null) {
-        add(this.theme.fg("dim", ` ${header}: `) + this.theme.fg("warning", "—"));
-      } else {
-        add(this.theme.fg("muted", ` ${header}: `) + this.theme.fg(color, text));
-      }
+      const value = text ?? (displayState === "skipped" ? "(skipped)" : "(no answer)");
+      const valueColor =
+        displayState === "clarification"
+          ? "warning"
+          : displayState === "answered"
+            ? "text"
+            : displayState === "skipped"
+              ? "dim"
+              : "warning";
+      add(
+        ` ${this.theme.fg(badge.color, badge.label)} ` +
+          this.theme.fg("accent", `${header}: `) +
+          this.theme.fg(valueColor, value),
+      );
     }
     add("");
     if (allDone) {
@@ -818,26 +852,21 @@ class AskUserQuestionComponent implements Component {
     }
 
     add("");
-    add(this.theme.fg("dim", " ←→ switch tabs · Enter jump to unanswered · Esc cancel"));
+    add(this.theme.fg("dim", " Left/Right switch tabs | Enter jump to unanswered | Esc cancel"));
   }
-
   render(width: number): string[] {
     if (this.questions.length === 0) return [];
-
     const lines: string[] = [];
     const add = (text: string) => lines.push(truncateToWidth(text, width));
-    add(this.theme.fg("accent", "─".repeat(width)));
-
+    add(this.theme.fg("accent", "-".repeat(width)));
     if (!this.isSingle) {
       this.renderTabBar(add);
       lines.push("");
     }
-
     const question = this.questions[this.activeTab];
     if (question) this.renderQuestionBody(question, this.states[this.activeTab], width, add);
     else this.renderSubmitTab(add);
-
-    add(this.theme.fg("accent", "─".repeat(width)));
+    add(this.theme.fg("accent", "-".repeat(width)));
     return lines;
   }
 
@@ -1026,12 +1055,17 @@ Always use this tool instead of asking questions in plain text — it provides a
       const keys = questionKeys(details.questions);
       const lines = details.questions.map((question, index) => {
         const key = keys[index];
-        const answer = details.displayAnswers[key] ?? details.answers[key] ?? "(no answer)";
+        const answer = details.displayAnswers[key] ?? details.answers[key];
         const clarification = details.freeTextIntents[key] === "clarification_request";
+        const skipped = answer === undefined && question.required === false;
+        const badge = clarification ? "[ask]" : skipped ? "[skip]" : answer === undefined ? "[pending]" : "[done]";
+        const badgeColor = clarification ? "warning" : skipped ? "dim" : answer === undefined ? "warning" : "success";
+        const value = answer ?? (skipped ? "(skipped)" : "(no answer)");
+        const valueColor = clarification ? "warning" : skipped ? "dim" : answer === undefined ? "warning" : "text";
         return (
-          (clarification ? theme.fg("warning", "? ") : theme.fg("success", "✓ ")) +
+          theme.fg(badgeColor, `${badge} `) +
           theme.fg("accent", `${questionHeader(question)}: `) +
-          theme.fg(clarification ? "warning" : "text", answer)
+          theme.fg(valueColor, value)
         );
       });
 
