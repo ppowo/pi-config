@@ -9,6 +9,6 @@
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "latest",
     "@mariozechner/pi-tui": "latest",
-    "@sinclair/typebox": "latest"
+    "typebox": "latest"
   }
 }
