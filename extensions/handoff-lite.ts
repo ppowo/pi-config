@@ -386,7 +386,14 @@ const loadSessionMessages = (sessionFile: string): Message[] => {
 
 const HANDOFF_LITE_GLOBAL_KEY = Symbol.for("pi-config-handoff-lite-pending");
 
-type PendingHandoffLite = { prompt: string } | null;
+type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
+
+type PendingHandoffLite = {
+	prompt: string;
+	provider: string;
+	modelId: string;
+	thinkingLevel: ThinkingLevel;
+} | null;
 
 function getPendingHandoffLite(): PendingHandoffLite {
 	return (globalThis as Record<symbol, PendingHandoffLite | undefined>)[HANDOFF_LITE_GLOBAL_KEY] ?? null;
@@ -410,12 +417,40 @@ function buildHandoffLitePrompt(goal: string, parentSession: string, summary: st
 	].join("\n\n");
 }
 
+async function restoreHandoffLiteState(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	pending: Exclude<PendingHandoffLite, null>,
+) {
+	const model = ctx.modelRegistry.find(pending.provider, pending.modelId);
+	if (!model) {
+		if (ctx.hasUI) {
+			ctx.ui.notify(
+				`Handoff-lite: could not restore ${pending.provider}/${pending.modelId}; using current session model`,
+				"warning",
+			);
+		}
+	} else {
+		const ok = await pi.setModel(model);
+		if (!ok && ctx.hasUI) {
+			ctx.ui.notify(
+				`Handoff-lite: no API key for ${pending.provider}/${pending.modelId}; using current session model`,
+				"warning",
+			);
+		}
+	}
+	pi.setThinkingLevel(pending.thinkingLevel);
+}
+
 export default function (pi: ExtensionAPI) {
-	pi.on("session_start", async (_event, _ctx: ExtensionContext) => {
+	pi.on("session_start", async (event, ctx: ExtensionContext) => {
+		if (event.reason !== "new") return;
+
 		const pending = getPendingHandoffLite();
 		if (!pending) return;
 
 		setPendingHandoffLite(null);
+		await restoreHandoffLiteState(pi, ctx, pending);
 		pi.sendUserMessage(pending.prompt);
 	});
 
@@ -434,6 +469,13 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			const currentModel = ctx.model;
+			if (!currentModel) {
+				ctx.ui.notify("Handoff-lite requires an active model.", "error");
+				return;
+			}
+			const currentThinkingLevel = pi.getThinkingLevel();
+
 			let summary = "(no summary available)";
 			try {
 				const messages = loadSessionMessages(parentSession);
@@ -441,7 +483,12 @@ export default function (pi: ExtensionAPI) {
 				if (compiled) summary = compiled;
 			} catch {}
 
-			setPendingHandoffLite({ prompt: buildHandoffLitePrompt(goal, parentSession, summary) });
+			setPendingHandoffLite({
+				prompt: buildHandoffLitePrompt(goal, parentSession, summary),
+				provider: currentModel.provider,
+				modelId: currentModel.id,
+				thinkingLevel: currentThinkingLevel,
+			});
 			const result = await ctx.newSession({ parentSession });
 			if (result.cancelled) {
 				setPendingHandoffLite(null);
