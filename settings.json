@@ -31,7 +31,12 @@
     "https://github.com/coctostan/pi-hashline-readmap",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
-    "npm:@coctostan/pi-exa-gh-web-tools"
+    "npm:@coctostan/pi-exa-gh-web-tools",
+    "https://github.com/mattpocock/skills"
+  ],
+  "skills": [
+    "~/.pi/agent/git/github.com/mattpocock/skills/grill-me",
+    "~/.pi/agent/git/github.com/mattpocock/skills/improve-codebase-architecture"
   ],
   "extensions": [
     "extensions/bash-snapshot.ts",
