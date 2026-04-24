@@ -31,9 +31,10 @@
     "https://github.com/coctostan/pi-hashline-readmap",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
-    "npm:@coctostan/pi-exa-gh-web-tools",
+    "npm:@coctostan/pi-exa-gh-web-tools"
   ],
   "extensions": [
+    "extensions/bash-snapshot.ts",
     "extensions/handoff-lite.ts"
   ],
   "compaction": {
