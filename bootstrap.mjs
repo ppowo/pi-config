@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
@@ -12,7 +11,6 @@ const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
 const EXTENSIONS_DIR = join(REPO_DIR, "extensions");
 const PI_EXTENSIONS_DIR = join(PI_DIR, "extensions");
-const NPM_COMMAND = process.platform === "win32" ? "npm.cmd" : "npm";
 const XDG_DATA_HOME = process.env.XDG_DATA_HOME ? resolve(process.env.XDG_DATA_HOME) : join(HOME, ".local", "share");
 const DEFAULT_VEX_BIN_DIR = process.platform === "linux"
   ? join(XDG_DATA_HOME, "vex")
@@ -34,8 +32,13 @@ const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json
 const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
 const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
-const MANAGED_EXTENSION_ENTRY_NAMES_STATE = join(PI_DIR, ".managed-extension-entry-names.json");
-const LOCAL_PACKAGES_STATE = join(PI_DIR, ".managed-local-packages.json");
+const RESETTABLE_PI_PATHS = [
+  // Fully managed by this repo. settings.json/verbosity.json stay incremental.
+  ...links.map(({link}) => link),
+  PI_EXTENSIONS_DIR,
+  join(PI_DIR, ".managed-extension-entry-names.json"),
+  join(PI_DIR, ".managed-local-packages.json"),
+];
 const PI_NUSHELL_DIR = join(HOME, ".config", "pi", "nushell");
 const PI_NUSHELL_CONFIG = join(PI_NUSHELL_DIR, "config.nu");
 const PI_NUSHELL_PLUGIN_REGISTRY = join(PI_NUSHELL_DIR, "plugins.msgpackz");
@@ -47,13 +50,6 @@ const OPTIONAL_NUSHELL_PLUGINS = [
   { name: "file", binary: "nu_plugin_file" },
 ];
 
-function normalizeRelPath(path) {
-  return path.replaceAll("\\", "/");
-}
-
-function repoPathFromRel(relPath) {
-  return join(REPO_DIR, ...relPath.split("/"));
-}
 
 function pathIsInside(root, targetPath) {
   const rel = relative(root, targetPath);
@@ -406,8 +402,17 @@ async function writeJsonFile(path, value) {
   await writeFile(path, JSON.stringify(value, null, 2) + "\n");
 }
 
+async function cleanupManagedPiPaths() {
+  for (const managedPath of RESETTABLE_PI_PATHS) {
+    assertSafePath(managedPath, [PI_DIR]);
+    await rm(managedPath, {recursive: true, force: true});
+  }
+
+  console.log("cleaned fully managed pi paths");
+}
+
 async function syncExtensionLinks() {
-  assertSafePath(PI_EXTENSIONS_DIR, [HOME]);
+  assertSafePath(PI_EXTENSIONS_DIR, [PI_DIR]);
 
   if (existsSync(PI_EXTENSIONS_DIR)) {
     const stat = await lstat(PI_EXTENSIONS_DIR);
@@ -418,47 +423,13 @@ async function syncExtensionLinks() {
 
   await mkdir(PI_EXTENSIONS_DIR, { recursive: true });
 
-  const previousManagedEntryNamesRaw = await readJsonFile(MANAGED_EXTENSION_ENTRY_NAMES_STATE, []);
-  const previousManagedEntryNames = Array.isArray(previousManagedEntryNamesRaw)
-    ? uniqueSorted(previousManagedEntryNamesRaw.filter((value) => typeof value === "string"))
-    : [];
   const repoEntries = existsSync(EXTENSIONS_DIR)
     ? (await readdir(EXTENSIONS_DIR, { withFileTypes: true }))
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
-  const nextManagedEntryNames = uniqueSorted(repoEntries.map((entry) => entry.name));
-  const nextManagedEntryNameSet = new Set(nextManagedEntryNames);
-
-  for (const name of previousManagedEntryNames) {
-    if (nextManagedEntryNameSet.has(name)) {
-      continue;
-    }
-
-    const linkPath = join(PI_EXTENSIONS_DIR, name);
-    try {
-      // existsSync() returns false for dangling symlinks, but stale managed entries can be broken links.
-      await lstat(linkPath);
-    } catch (error) {
-      if (error?.code === "ENOENT") {
-        continue;
-      }
-      throw error;
-    }
-
-    assertSafePath(linkPath, [HOME]);
-    await rm(linkPath, { recursive: true, force: true });
-    console.log(`removed stale managed extension entry ${linkPath}`);
-  }
 
   for (const entry of repoEntries) {
     await relink(join(PI_EXTENSIONS_DIR, entry.name), join(EXTENSIONS_DIR, entry.name));
-  }
-
-  if (nextManagedEntryNames.length > 0) {
-    await writeJsonFile(MANAGED_EXTENSION_ENTRY_NAMES_STATE, nextManagedEntryNames);
-  } else {
-    assertSafePath(MANAGED_EXTENSION_ENTRY_NAMES_STATE, [HOME]);
-    await rm(MANAGED_EXTENSION_ENTRY_NAMES_STATE, { force: true });
   }
 }
 
@@ -519,130 +490,6 @@ async function mergeJsonOverlay(
   console.log(`merged ${label} into ${targetPath}`);
 }
 
-async function readLocalPackagesState() {
-  const raw = await readJsonFile(LOCAL_PACKAGES_STATE, { packages: {} });
-  if (!isObject(raw) || !isObject(raw.packages)) {
-    return { packages: {} };
-  }
-
-  const packages = {};
-  for (const [relPath, meta] of Object.entries(raw.packages)) {
-    if (isObject(meta) && typeof meta.fingerprint === "string") {
-      packages[normalizeRelPath(relPath)] = { fingerprint: meta.fingerprint };
-    }
-  }
-  return { packages };
-}
-
-async function discoverLocalExtensionPackages() {
-  if (!existsSync(EXTENSIONS_DIR)) {
-    return [];
-  }
-
-  const entries = await readdir(EXTENSIONS_DIR, { withFileTypes: true });
-  const packages = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const dir = join(EXTENSIONS_DIR, entry.name);
-    const packageJsonPath = join(dir, "package.json");
-    if (!existsSync(packageJsonPath)) continue;
-
-    packages.push({
-      dir,
-      relPath: normalizeRelPath(relative(REPO_DIR, dir)),
-      packageJsonPath,
-      nodeModulesPath: join(dir, "node_modules"),
-    });
-  }
-
-  return packages.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}
-
-async function fingerprintLocalPackage(pkg) {
-  const hash = createHash("sha256");
-  hash.update(await readFile(pkg.packageJsonPath, "utf-8"));
-  return hash.digest("hex");
-}
-
-async function installLocalPackageDependencies(pkg, previousFingerprint) {
-  const fingerprintBeforeInstall = await fingerprintLocalPackage(pkg);
-  const hasNodeModules = existsSync(pkg.nodeModulesPath);
-
-  if (hasNodeModules && previousFingerprint === fingerprintBeforeInstall) {
-    console.log(`local package unchanged, skipping install: ${pkg.relPath}`);
-    return { relPath: pkg.relPath, fingerprint: fingerprintBeforeInstall };
-  }
-
-  const installArgs = ["install", "--no-audit", "--no-fund", "--package-lock=false"];
-  const action = hasNodeModules ? "updating" : "installing";
-
-  console.log(`${action} local package dependencies: ${pkg.relPath}`);
-  await execCommand(NPM_COMMAND, installArgs, pkg.dir, { captureOutput: false });
-
-  const fingerprintAfterInstall = await fingerprintLocalPackage(pkg);
-  return { relPath: pkg.relPath, fingerprint: fingerprintAfterInstall };
-}
-
-async function cleanupRemovedLocalPackage(relPath) {
-  const dir = repoPathFromRel(relPath);
-  if (!existsSync(dir)) {
-    console.log(`removed stale local package state: ${relPath}`);
-    return;
-  }
-
-  const nodeModulesPath = join(dir, "node_modules");
-  if (existsSync(nodeModulesPath)) {
-    assertSafePath(nodeModulesPath, [REPO_DIR]);
-    await rm(nodeModulesPath, { recursive: true, force: true });
-    console.log(`removed stale node_modules for ${relPath}`);
-  }
-
-  const remainingEntries = existsSync(dir)
-    ? (await readdir(dir)).filter((name) => name !== ".DS_Store")
-    : [];
-
-  if (remainingEntries.length === 0) {
-    assertSafePath(dir, [REPO_DIR]);
-    await rm(dir, { recursive: true, force: true });
-    console.log(`removed empty stale package directory: ${relPath}`);
-    return;
-  }
-
-  console.log(`left stale package directory intact (${relPath}); remaining entries: ${remainingEntries.join(", ")}`);
-}
-
-async function syncLocalExtensionPackages() {
-  const packages = await discoverLocalExtensionPackages();
-  const previousState = await readLocalPackagesState();
-  const nextPackages = {};
-
-  for (const pkg of packages) {
-    const previousFingerprint = previousState.packages[pkg.relPath]?.fingerprint;
-    const record = await installLocalPackageDependencies(pkg, previousFingerprint);
-    nextPackages[record.relPath] = { fingerprint: record.fingerprint };
-  }
-
-  const previousPaths = new Set(Object.keys(previousState.packages));
-  const currentPaths = new Set(packages.map((pkg) => pkg.relPath));
-  const removedPaths = [...previousPaths]
-    .filter((relPath) => !currentPaths.has(relPath))
-    .sort((a, b) => a.localeCompare(b));
-
-  for (const relPath of removedPaths) {
-    await cleanupRemovedLocalPackage(relPath);
-  }
-
-  if (Object.keys(nextPackages).length === 0) {
-    await rm(LOCAL_PACKAGES_STATE, { force: true });
-    console.log("local extension package sync complete (no managed packages)");
-    return;
-  }
-
-  await writeJsonFile(LOCAL_PACKAGES_STATE, { packages: nextPackages });
-  console.log(`local extension package sync complete (${Object.keys(nextPackages).length} managed package(s))`);
-}
 
 async function syncPiNushellPlugins() {
   const nuPath = await resolveCommandPath("nu");
@@ -713,6 +560,8 @@ async function main() {
     await mkdir(PI_DIR, { recursive: true });
   }
 
+  await cleanupManagedPiPaths();
+
   for (const { link, target } of links) {
     await relink(link, target);
   }
@@ -721,7 +570,6 @@ async function main() {
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
-  await syncLocalExtensionPackages();
   await syncPiNushellPlugins();
 
   console.log("bootstrap complete");
