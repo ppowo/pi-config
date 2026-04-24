@@ -20,14 +20,14 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const PREVIEW_MAX_LINES = 100;
-const PREVIEW_MAX_BYTES = 16 * 1024;
+const PREVIEW_MAX_LINES = 200;
+const PREVIEW_MAX_BYTES = 32 * 1024;
 const SNAPSHOT_DIR = join(homedir(), ".pi", "agent", "tmp", "bash-pre-rtk");
 const SNAPSHOT_RETENTION_HOURS = 72;
 const SNAPSHOT_RETENTION_MS = SNAPSHOT_RETENTION_HOURS * 60 * 60 * 1000;
 const HEAD_TAIL_SEPARATOR = "[... trimmed middle ...]";
-const HEAD_TAIL_HEAD_LINES = 35;
-const HEAD_TAIL_TAIL_LINES = 64;
+const HEAD_TAIL_HEAD_LINES = 70;
+const HEAD_TAIL_TAIL_LINES = 129;
 const HEAD_TAIL_HEAD_BYTES = Math.floor(PREVIEW_MAX_BYTES * 0.35);
 const HEAD_TAIL_TAIL_BYTES = Math.max(
 	1024,
@@ -57,8 +57,17 @@ const HEAD_TAIL_COMMAND_HINTS = [
 ];
 
 type ContentBlock = ToolResultEvent["content"][number];
+type PreRtkTrimInfo = {
+	mode: "tail" | "head_tail";
+	summary: string;
+	totalLines: number;
+	totalBytes: number;
+	outputLines: number;
+	outputBytes: number;
+};
 type BashTrimDetails = BashToolDetails & {
 	preRtkOutputPath?: string;
+	preRtkTrim?: PreRtkTrimInfo;
 	upstreamFullOutputPath?: string;
 };
 type TailPreview = ReturnType<typeof truncateTail> & { mode: "tail" };
@@ -207,27 +216,33 @@ function buildPreview(text: string, command: string): Preview | undefined {
 	return headTail ?? { ...tail, mode: "tail" };
 }
 
-function buildPreviewNotice(
-	text: string,
-	preview: Preview,
-	preRtkOutputPath: string,
-	upstreamFullOutputPath?: string,
-): string {
-	let summary: string;
+function buildPreviewSummary(text: string, preview: Preview): string {
 	if (preview.mode === "head_tail") {
-		summary = `showing first ${preview.headOutputLines} and last ${preview.tailOutputLines} lines of ${preview.totalLines}`;
-	} else if (preview.lastLinePartial) {
-		const lastLine = text.split("\n").pop() ?? "";
-		summary = `showing last ${formatSize(preview.outputBytes)} of line ${preview.totalLines} (line is ${formatSize(Buffer.byteLength(lastLine, "utf-8"))})`;
-	} else if (preview.truncatedBy === "lines") {
-		const startLine = Math.max(1, preview.totalLines - preview.outputLines + 1);
-		summary = `showing lines ${startLine}-${preview.totalLines} of ${preview.totalLines}`;
-	} else {
-		const startLine = Math.max(1, preview.totalLines - preview.outputLines + 1);
-		summary = `showing lines ${startLine}-${preview.totalLines} of ${preview.totalLines} (${formatSize(PREVIEW_MAX_BYTES)} limit)`;
+		return `showing first ${preview.headOutputLines} and last ${preview.tailOutputLines} lines of ${preview.totalLines}`;
 	}
 
-	return `[Bash output trimmed before RTK: ${summary}. Pre-RTK snapshot: ${preRtkOutputPath}. Use read on that path for the full pre-RTK text.${upstreamFullOutputPath ? ` Existing full output: ${upstreamFullOutputPath}.` : ""}]`;
+	if (preview.lastLinePartial) {
+		const lastLine = text.split("\n").pop() ?? "";
+		return `showing last ${formatSize(preview.outputBytes)} of line ${preview.totalLines} (line is ${formatSize(Buffer.byteLength(lastLine, "utf-8"))})`;
+	}
+
+	const startLine = Math.max(1, preview.totalLines - preview.outputLines + 1);
+	if (preview.truncatedBy === "lines") {
+		return `showing lines ${startLine}-${preview.totalLines} of ${preview.totalLines}`;
+	}
+
+	return `showing lines ${startLine}-${preview.totalLines} of ${preview.totalLines} (${formatSize(PREVIEW_MAX_BYTES)} limit)`;
+}
+
+function buildPreRtkTrimInfo(text: string, preview: Preview): PreRtkTrimInfo {
+	return {
+		mode: preview.mode,
+		summary: buildPreviewSummary(text, preview),
+		totalLines: preview.totalLines,
+		totalBytes: preview.totalBytes,
+		outputLines: preview.outputLines,
+		outputBytes: preview.outputBytes,
+	};
 }
 
 export default function (pi: ExtensionAPI) {
@@ -251,18 +266,20 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
-		let preRtkOutputPath: string;
-		try {
-			preRtkOutputPath = writePreRtkSnapshot(text);
-		} catch {
-			return undefined;
-		}
-
 		const upstreamFullOutputPath = getExistingFullOutputPath(event.details);
+		let preRtkOutputPath = upstreamFullOutputPath;
+		if (!preRtkOutputPath) {
+			try {
+				preRtkOutputPath = writePreRtkSnapshot(text);
+			} catch {
+				return undefined;
+			}
+		}
 		const details: BashTrimDetails = {
 			...(event.details ?? {}),
 			truncation: preview.mode === "tail" ? preview : undefined,
 			preRtkOutputPath,
+			preRtkTrim: buildPreRtkTrimInfo(text, preview),
 			...(upstreamFullOutputPath ? { upstreamFullOutputPath } : { fullOutputPath: preRtkOutputPath }),
 		};
 		if (preview.mode !== "tail") {
@@ -272,7 +289,7 @@ export default function (pi: ExtensionAPI) {
 		return {
 			content: [{
 				type: "text",
-				text: [preview.content, "", buildPreviewNotice(text, preview, preRtkOutputPath, upstreamFullOutputPath)].join("\n"),
+				text: preview.content,
 			}] as TextContent[],
 			details,
 		};
