@@ -435,8 +435,14 @@ async function syncExtensionLinks() {
     }
 
     const linkPath = join(PI_EXTENSIONS_DIR, name);
-    if (!existsSync(linkPath)) {
-      continue;
+    try {
+      // existsSync() returns false for dangling symlinks, but stale managed entries can be broken links.
+      await lstat(linkPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        continue;
+      }
+      throw error;
     }
 
     assertSafePath(linkPath, [HOME]);
