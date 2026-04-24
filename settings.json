@@ -32,10 +32,8 @@
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
     "npm:@coctostan/pi-exa-gh-web-tools",
-    "extensions/bash-post-hashline-readmap-breadcrumb.ts"
   ],
   "extensions": [
-    "extensions/bash-pre-hashline-readmap-trim.ts",
     "extensions/handoff-lite.ts"
   ],
   "compaction": {
