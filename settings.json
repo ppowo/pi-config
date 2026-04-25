@@ -36,7 +36,9 @@
   ],
   "skills": [
     "~/.pi/agent/git/github.com/mattpocock/skills/grill-me",
-    "~/.pi/agent/git/github.com/mattpocock/skills/improve-codebase-architecture"
+    "~/.pi/agent/git/github.com/mattpocock/skills/improve-codebase-architecture",
+    "~/.pi/agent/git/github.com/mattpocock/skills/tdd",
+    "~/.pi/agent/git/github.com/mattpocock/skills/ubiquitous-language"
   ],
   "extensions": [
     "extensions/bash-snapshot.ts",
