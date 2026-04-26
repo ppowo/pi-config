@@ -24,7 +24,8 @@ const PROTECTED_LINE_PATTERNS = [
 	/^\[After RTK readmap:/,
 	/^\[Output \(RTK bypassed\:/,
 	/^\[Full RTK readmap output:/,
-	/^Exit code:/,
+  /^Command exited with code\s/,
+  /^\[If you need more detail/
 ];
 
 const HIDDEN_OPERATIONAL_LINE_PATTERNS = [
@@ -137,6 +138,7 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+
 function buildGuardedPreview(opts: {
 	protectedLines: string[];
 	bodyPreview: string;
@@ -148,6 +150,8 @@ function buildGuardedPreview(opts: {
 	originalPath?: string;
 	reusedFullOutputPath?: boolean;
 	rtkBypassed?: boolean;
+  compressionTechnique?: string;
+  isError?: boolean;
 	command?: string;
 }): string {
 	const lines: string[] = [];
@@ -164,14 +168,19 @@ function buildGuardedPreview(opts: {
 	lines.push(opts.bodyPreview);
 	lines.push("");
 
+  lines.push("[If you need more detail, read the full output file with targeted offset/limit — don't add it all to context]");
+
 	// Footer metadata
 	const original = typeof opts.originalBytes === "number" && typeof opts.originalLines === "number"
 		? `; original: ${formatSize(opts.originalBytes)}, ${opts.originalLines} lines`
 		: "";
+  const technique = opts.compressionTechnique && opts.compressionTechnique !== "none"
+    ? ` (${opts.compressionTechnique})`
+    : "";
 	if (opts.rtkBypassed) {
 		lines.push(`[Output (RTK bypassed): ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
 	} else {
-		lines.push(`[After RTK readmap: ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
+    lines.push(`[After RTK readmap${technique}: ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
 	}
 	if (opts.originalPath && !opts.reusedFullOutputPath) lines.push(`[Full output: ${opts.originalPath}]`);
 	lines.push(`[Full RTK readmap output${opts.rtkBypassed ? " (only stripped ANSI escape codes because of bypass)" : ""}: ${opts.postRtkOutputPath}]`);
@@ -237,19 +246,20 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const { protectedLines, bodyLines } = partitionContent(postRtkText);
-		const guardedText = buildGuardedPreview({
-			protectedLines,
-			bodyPreview: createBodyPreview(bodyLines),
-			postRtkOutputPath,
-			postRtkBytes,
-			postRtkLines,
-			originalBytes: bashSnapshot?.originalBytes,
-			originalLines: bashSnapshot?.originalLines,
-			originalPath: bashSnapshot?.snapshotPath,
-			reusedFullOutputPath: bashSnapshot?.reusedFullOutputPath,
-			rtkBypassed: compressionInfo?.bypassedBy === "env-var",
-			command: compactCommand(event.input),
-		});
+      const guardedText = buildGuardedPreview({
+        protectedLines,
+        bodyPreview: createBodyPreview(bodyLines),
+        postRtkOutputPath,
+        postRtkBytes,
+        postRtkLines,
+        originalBytes: bashSnapshot?.originalBytes,
+        originalLines: bashSnapshot?.originalLines,
+        originalPath: bashSnapshot?.snapshotPath,
+        reusedFullOutputPath: bashSnapshot?.reusedFullOutputPath,
+        rtkBypassed: compressionInfo?.bypassedBy === "env-var",
+        compressionTechnique: compressionInfo?.technique,
+        command: compactCommand(event.input),
+      });
 
 		return {
 			content: [...extracted.nonTextParts, { type: "text" as const, text: guardedText }],
