@@ -29,6 +29,7 @@
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "https://github.com/coctostan/pi-hashline-readmap",
+    "extensions/bash-context-guard.ts",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
     "npm:@coctostan/pi-exa-gh-web-tools",
@@ -43,7 +44,7 @@
   "extensions": [
     "extensions/bash-snapshot.ts",
     "extensions/handoff-lite.ts",
-    "extensions/bash-context-guard.ts"
+    "-extensions/bash-context-guard.ts"
   ],
   "compaction": {
     "enabled": false
