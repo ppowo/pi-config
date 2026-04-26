@@ -20,7 +20,10 @@ const PROTECTED_LINE_PATTERNS = [
 	/^\[Hint:/,
 	/PI_RTK_BYPASS=1/,
 	/^\[Output truncated\./,
-	/^Full output:/,
+	/^\[Full output:/,
+	/^\[After RTK readmap:/,
+	/^\[Output \(RTK bypassed\:/,
+	/^\[Full RTK readmap output:/,
 	/^Exit code:/,
 ];
 
@@ -35,6 +38,7 @@ interface BashSnapshotMeta {
 	originalBytes?: number;
 	originalLines?: number;
 	fullOutputPath?: string;
+	reusedFullOutputPath?: boolean;
 }
 
 interface BashContextGuardMeta {
@@ -142,17 +146,12 @@ function buildGuardedPreview(opts: {
 	originalBytes?: number;
 	originalLines?: number;
 	originalPath?: string;
+	reusedFullOutputPath?: boolean;
+	rtkBypassed?: boolean;
 	command?: string;
 }): string {
 	const lines: string[] = [];
 	lines.push("[Bash output guarded: showing preview only]");
-	lines.push(`[Full post-RTK output: ${opts.postRtkOutputPath}]`);
-	if (opts.originalPath) lines.push(`[Original/pre-RTK output: ${opts.originalPath}]`);
-	const original = typeof opts.originalBytes === "number" && typeof opts.originalLines === "number"
-		? `; original: ${formatSize(opts.originalBytes)}, ${opts.originalLines} lines`
-		: "";
-	lines.push(`[Post-RTK: ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
-	if (opts.command) lines.push(`[Command: ${opts.command}]`);
 	lines.push("");
 
 	if (opts.protectedLines.length > 0) {
@@ -163,6 +162,20 @@ function buildGuardedPreview(opts: {
 
 	lines.push("Preview:");
 	lines.push(opts.bodyPreview);
+	lines.push("");
+
+	// Footer metadata
+	const original = typeof opts.originalBytes === "number" && typeof opts.originalLines === "number"
+		? `; original: ${formatSize(opts.originalBytes)}, ${opts.originalLines} lines`
+		: "";
+	if (opts.rtkBypassed) {
+		lines.push(`[Output (RTK bypassed): ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
+	} else {
+		lines.push(`[After RTK readmap: ${formatSize(opts.postRtkBytes)}, ${opts.postRtkLines} lines${original}]`);
+	}
+	if (opts.originalPath && !opts.reusedFullOutputPath) lines.push(`[Full output: ${opts.originalPath}]`);
+	lines.push(`[Full RTK readmap output${opts.rtkBypassed ? " (only stripped ANSI escape codes because of bypass)" : ""}: ${opts.postRtkOutputPath}]`);
+	if (opts.command) lines.push(`[Command: ${opts.command}]`);
 	return lines.join("\n");
 }
 
@@ -177,6 +190,7 @@ export default function (pi: ExtensionAPI) {
 			? (event.details as Record<string, unknown>)
 			: {};
 		const bashSnapshot = details.bashSnapshot as BashSnapshotMeta | undefined;
+	const compressionInfo = details.compressionInfo as { technique?: string; bypassedBy?: string } | undefined;
 
 		const postRtkText = extracted.text;
 		const postRtkBytes = byteLength(postRtkText);
@@ -232,6 +246,8 @@ export default function (pi: ExtensionAPI) {
 			originalBytes: bashSnapshot?.originalBytes,
 			originalLines: bashSnapshot?.originalLines,
 			originalPath: bashSnapshot?.snapshotPath,
+			reusedFullOutputPath: bashSnapshot?.reusedFullOutputPath,
+			rtkBypassed: compressionInfo?.bypassedBy === "env-var",
 			command: compactCommand(event.input),
 		});
 
