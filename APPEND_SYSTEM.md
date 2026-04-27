@@ -17,4 +17,4 @@
 - Use `ls` for single-directory listings, `find` for recursive discovery, `nu` for structured inspection, and `bash` for execution.
 - For source-code discovery, start with `codespelunker`; use `ast_search` for syntax-aware patterns; use `grep` only for exact text or regex after you know the target.
 - Narrow early with tool filters (`path`, `includeExt`, `language`, `mode`, `glob`) and keep reads bounded.
-- When bash output points to `Full output: /tmp/...`, use `read` on that path only if you need more detail.
+- For guarded bash output, `Full output: /tmp/...` is the raw/original stream and `Full RTK readmap output: /tmp/...` is the post-RTK/hashline stream; use `read` with targeted `offset`/`limit` only when you need more detail.
