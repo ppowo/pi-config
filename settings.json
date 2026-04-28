@@ -33,14 +33,19 @@
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
     "npm:@coctostan/pi-exa-gh-web-tools",
-    "https://github.com/mattpocock/skills"
+    {
+      "source": "https://github.com/mattpocock/skills",
+      "skills": [
+        "skills/productivity/grill-me/SKILL.md",
+        "skills/engineering/grill-with-docs/SKILL.md",
+        "skills/engineering/improve-codebase-architecture/SKILL.md",
+        "skills/engineering/tdd/SKILL.md",
+        "skills/engineering/zoom-out/SKILL.md",
+        "skills/deprecated/ubiquitous-language/SKILL.md"
+      ]
+    }
   ],
-  "skills": [
-    "~/.pi/agent/git/github.com/mattpocock/skills/grill-me",
-    "~/.pi/agent/git/github.com/mattpocock/skills/improve-codebase-architecture",
-    "~/.pi/agent/git/github.com/mattpocock/skills/tdd",
-    "~/.pi/agent/git/github.com/mattpocock/skills/ubiquitous-language"
-  ],
+  "skills": [],
   "extensions": [
     "extensions/bash-snapshot.ts",
     "extensions/handoff-lite.ts",
