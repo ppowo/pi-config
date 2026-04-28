@@ -1,7 +1,6 @@
 {
   "theme": "github-light-colorblind",
   "spinnerVerbs": "random",
-  "npmCommand": ["npm", "--legacy-peer-deps"],
   "packages": [
     {
       "source": "npm:pi-amplike",
