@@ -1,44 +1,52 @@
 /**
  * Protected Paths Extension
  *
- * Blocks write/edit operations to sensitive paths.
+ * Blocks writes to sensitive paths. Env templates are allowed; real .env files ask first.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-type ProtectedRule = {
-	name: string;
-	pattern: RegExp;
-};
+type Action = "allow" | "ask" | "block";
+type Rule = [name: string, action: Action, pattern: RegExp];
 
-const protectedRules: ProtectedRule[] = [
-	{ name: ".git metadata", pattern: /(^|\/)\.git(\/|$)/ },
-	{ name: "node_modules", pattern: /(^|\/)node_modules(\/|$)/ },
-	{ name: ".env files", pattern: /(^|\/)\.env($|[._-])/ },
-	{ name: ".envrc", pattern: /(^|\/)\.envrc$/ },
-	{ name: "SSH keys", pattern: /(^|\/)\.ssh(\/|$)/ },
-	{ name: "GnuPG keys", pattern: /(^|\/)\.gnupg(\/|$)/ },
-	{ name: "private key files", pattern: /\.(pem|key|p12|pfx)$/ },
+const rules: Rule[] = [
+	["env template", "allow", /(^|\/)\.env\.(example|sample|template)$/],
+	[".env file", "ask", /(^|\/)\.env($|[._-])/],
+	[".envrc", "block", /(^|\/)\.envrc$/],
+	[".git metadata", "block", /(^|\/)\.git(\/|$)/],
+	["node_modules", "block", /(^|\/)node_modules(\/|$)/],
+	["SSH keys", "block", /(^|\/)\.ssh(\/|$)/],
+	["GnuPG keys", "block", /(^|\/)\.gnupg(\/|$)/],
+	["private key files", "block", /\.(pem|key|p12|pfx)$/],
 ];
+
+const classify = (path: string) => {
+	const matches = rules.filter(([, , pattern]) => pattern.test(path));
+	const has = (action: Action) => matches.some(([, candidate]) => candidate === action);
+	const action: Action = has("allow") ? "allow" : has("block") ? "block" : has("ask") ? "ask" : "allow";
+	return { action, names: matches.map(([name]) => name).filter((name) => name !== "env template") };
+};
 
 export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "write" && event.toolName !== "edit") {
-			return undefined;
-		}
+		if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
 
 		const path = String(event.input.path ?? "");
-		const normalizedPath = path.replaceAll("\\", "/").toLowerCase();
-		const matched = [...new Set(protectedRules.filter((rule) => rule.pattern.test(normalizedPath)).map((rule) => rule.name))];
+		const { action, names } = classify(path.replaceAll("\\", "/").toLowerCase());
+		if (action === "allow") return undefined;
 
-		if (matched.length === 0) {
-			return undefined;
+		const summary = names.join(", ");
+		const reason = `Path "${path}" is protected (${summary})`;
+
+		if (action === "block") {
+			if (ctx.hasUI) ctx.ui.notify(`Blocked write to protected path: ${path}`, "warning");
+			return { block: true, reason };
 		}
 
-		const reason = `Path "${path}" is protected (${matched.join(", ")})`;
-		if (ctx.hasUI) {
-			ctx.ui.notify(`Blocked write to protected path: ${path}`, "warning");
-		}
-		return { block: true, reason };
+		if (!ctx.hasUI) return { block: true, reason: `${reason}; confirmation requires UI` };
+
+		const allow = `Yes, allow ${event.toolName}`;
+		const choice = await ctx.ui.select(`⚠️ Protected file (${summary}):\n\n  ${path}\n\nAllow this ${event.toolName}?`, ["No, block it", allow]);
+		return choice === allow ? undefined : { block: true, reason: "Blocked by user" };
 	});
 }
