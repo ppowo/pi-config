@@ -32,7 +32,6 @@
     "npm:@aaronmaturen/pi-context7",
     "npm:@robhowley/spinner-verbs",
     "https://github.com/coctostan/pi-hashline-readmap",
-    "extensions/bash-context-guard.ts",
     "npm:pi-system-reminders",
     "npm:pi-bash-bg",
     "npm:@coctostan/pi-exa-gh-web-tools",
@@ -50,10 +49,8 @@
   ],
   "skills": [],
   "extensions": [
-    "extensions/bash-snapshot.ts",
     "extensions/handoff-lite.ts",
-    "extensions/openrouter-reasoning-content.ts",
-    "-extensions/bash-context-guard.ts"
+    "extensions/openrouter-reasoning-content.ts"
   ],
   "compaction": {
     "enabled": false
