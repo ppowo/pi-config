@@ -32,6 +32,9 @@ const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json
 const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
 const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
+const WEB_TOOLS_OVERLAY = join(REPO_DIR, "web-tools.json");
+const PI_WEB_TOOLS = join(HOME, ".pi", "web-tools.json");
+const PI_WEB_TOOLS_OWNED_STATE = join(PI_DIR, ".web-tools-overlay-owned-paths.json");
 const RESETTABLE_PI_PATHS = [
   // Fully managed by this repo. settings.json/verbosity.json stay incremental.
   ...links.map(({link}) => link),
@@ -570,6 +573,7 @@ async function main() {
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
+  await mergeJsonOverlay(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, PI_WEB_TOOLS_OWNED_STATE, "web tools overlay");
   await syncPiNushellPlugins();
 
   console.log("bootstrap complete");

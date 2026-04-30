@@ -31,6 +31,7 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
 - merges overlay files into:
   - `~/.pi/agent/settings.json` (from `settings.json`)
   - `~/.pi/agent/verbosity.json` (from `verbosity.json`)
+  - `~/.pi/web-tools.json` (from `web-tools.json`)
 - if `nu` is available, generates `~/.config/pi/nushell/config.nu` and `plugins.msgpackz`, registering optional Nushell plugins found on `PATH`
 
 ## Repo layout
