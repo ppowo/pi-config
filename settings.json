@@ -21,7 +21,7 @@
     "npm:@pborck/pi-de",
     "npm:@marckrenn/pi-sub-bar",
     {
-      "source": "https://github.com/ppowo/pi-synthetic",
+      "source": "npm:@aliou/pi-synthetic",
       "extensions": [
         "src/extensions/provider/index.ts",
         "src/extensions/sub-bar-integration/index.ts"
