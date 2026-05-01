@@ -21,7 +21,7 @@
     "npm:@pborck/pi-de",
     "npm:@marckrenn/pi-sub-bar",
     {
-      "source": "npm:@aliou/pi-synthetic",
+      "source": "https://github.com/ppowo/pi-synthetic",
       "extensions": [
         "src/extensions/provider/index.ts",
         "src/extensions/sub-bar-integration/index.ts"
@@ -48,10 +48,6 @@
     }
   ],
   "skills": [],
-  "extensions": [
-    "extensions/handoff-lite.ts",
-    "extensions/openrouter-reasoning-content.ts"
-  ],
   "compaction": {
     "enabled": false
   }
