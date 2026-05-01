@@ -1,5 +1,5 @@
 {
-  "theme": "github-light-colorblind",
+  "theme": "github-colorblind",
   "spinnerVerbs": "random",
   "npmCommand": [
     "npm",

@@ -558,6 +558,38 @@ async function syncPiNushellPlugins() {
   printHugeNushellPluginWarning(skippedPlugins);
 }
 
+async function getOsAppearanceMode() {
+  if (process.platform === "darwin") {
+    try {
+      const style = await execCommand("defaults", ["read", "-g", "AppleInterfaceStyle"], REPO_DIR);
+      return style.trim() === "Dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  }
+  if (process.platform === "linux") {
+    try {
+      const scheme = await execCommand("gsettings", ["get", "org.gnome.desktop.interface", "color-scheme"], REPO_DIR);
+      return scheme.trim().includes("dark") ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  }
+  return "light";
+}
+
+async function autoSwitchTheme() {
+  const appearance = await getOsAppearanceMode();
+  const variant = appearance === "dark" ? "dark" : "light";
+  const themeDir = join(REPO_DIR, "themes");
+  const linkPath = join(themeDir, "github-colorblind.json");
+  const targetPath = join(themeDir, "github-colorblind", `${variant}.json`);
+
+  try { await rm(linkPath, { force: true }); } catch {}
+  await symlink(targetPath, linkPath);
+  console.log(`linked theme: github-colorblind.json → github-colorblind/${variant}.json`);
+}
+
 async function main() {
   if (!existsSync(PI_DIR)) {
     await mkdir(PI_DIR, { recursive: true });
@@ -577,6 +609,8 @@ async function main() {
   await syncPiNushellPlugins();
 
   console.log("bootstrap complete");
+
+  await autoSwitchTheme();
 }
 
 main().catch((err) => {

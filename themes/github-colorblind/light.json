@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
-  "name": "github-light-colorblind",
+  "name": "github-colorblind",
   "vars": {
     "white": "#ffffff",
     "black": "#1f2328",
@@ -17,7 +17,7 @@
     "yellow5": "#9a6700",
     "purple5": "#8250df",
     "purple6": "#6639ba",
-    "red5": "#cf222e"
+    "red5": "#bc4c00"
   },
   "colors": {
     "accent": "blue5",
