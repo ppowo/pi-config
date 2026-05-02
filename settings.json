@@ -33,7 +33,7 @@
     "npm:@robhowley/spinner-verbs",
     "https://github.com/coctostan/pi-hashline-readmap",
     "npm:pi-system-reminders",
-    "npm:@coctostan/pi-exa-gh-web-tools",
+    "https://github.com/ppowo/pi-web-tools",
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [

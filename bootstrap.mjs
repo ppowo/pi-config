@@ -32,9 +32,6 @@ const PI_SETTINGS_OWNED_STATE = join(PI_DIR, ".settings-overlay-owned-paths.json
 const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
 const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.json");
-const WEB_TOOLS_OVERLAY = join(REPO_DIR, "web-tools.json");
-const PI_WEB_TOOLS = join(HOME, ".pi", "web-tools.json");
-const PI_WEB_TOOLS_OWNED_STATE = join(PI_DIR, ".web-tools-overlay-owned-paths.json");
 const SYNTHETIC_OVERLAY = join(REPO_DIR, "synthetic.json");
 const PI_SYNTHETIC = join(PI_EXTENSIONS_DIR, "synthetic.json");
 const PI_SYNTHETIC_OWNED_STATE = join(PI_DIR, ".synthetic-overlay-owned-paths.json");
@@ -608,7 +605,6 @@ async function main() {
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
-  await mergeJsonOverlay(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, PI_WEB_TOOLS_OWNED_STATE, "web tools overlay");
   await mergeJsonOverlay(SYNTHETIC_OVERLAY, PI_SYNTHETIC, PI_SYNTHETIC_OWNED_STATE, "pi synthetic overlay");
   await syncPiNushellPlugins();
 
