@@ -19,7 +19,13 @@
     "npm:pi-context-zone",
     "npm:pi-scurl",
     "npm:@pborck/pi-de",
-    "npm:@marckrenn/pi-sub-bar",
+    {
+      "source": "npm:@aliou/pi-synthetic",
+      "extensions": [
+        "src/extensions/provider/index.ts",
+        "src/extensions/sub-bar-integration/index.ts"
+      ]
+    }
     "npm:@aliou/pi-synthetic",
     "npm:@tintinweb/pi-tasks",
     "npm:pi-verbosity-control",
