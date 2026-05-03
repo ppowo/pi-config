@@ -25,8 +25,7 @@
         "src/extensions/provider/index.ts",
         "src/extensions/sub-bar-integration/index.ts"
       ]
-    }
-    "npm:@aliou/pi-synthetic",
+    },
     "npm:@tintinweb/pi-tasks",
     "npm:pi-verbosity-control",
     "npm:@aaronmaturen/pi-context7",
