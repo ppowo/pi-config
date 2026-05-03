@@ -18,3 +18,7 @@
 - For source-code discovery, start with `codespelunker`; use `ast_search` for syntax-aware patterns; use `grep` only for exact text or regex after you know the target.
 - Narrow early with tool filters (`path`, `includeExt`, `language`, `mode`, `glob`) and keep reads bounded.
 - For guarded bash output, `Full output: /tmp/...` is the raw/original stream and `Full RTK readmap output: /tmp/...` is the post-RTK/hashline stream; use `read` with targeted `offset`/`limit` only when you need more detail.
+
+# Output Style
+- Default to brevity. Be concise and avoid unnecessary preamble, filler, or summary wrap-ups.
+- Expand with detail only when the task complexity genuinely demands it or when explicitly asked.
