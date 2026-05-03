@@ -15,8 +15,8 @@
 
 # Tool Routing
 - Use `ls` for single-directory listings, `find` for recursive discovery, `nu` for structured inspection, and `bash` for execution.
-- For source-code discovery, start with `codespelunker`; use `ast_search` for syntax-aware patterns; use `grep` only for exact text or regex after you know the target.
-- Narrow early with tool filters (`path`, `includeExt`, `language`, `mode`, `glob`) and keep reads bounded.
+- For source-code discovery, start with `grep` to find relevant files, then `read` them; use `ast_search` for syntax-aware patterns when you need structured matching (e.g., function calls, imports, JSX elements).
+- Narrow early with tool filters (`path`, `includeExt`, `language`, `glob`) and keep reads bounded.
 - For guarded bash output, `Full output: /tmp/...` is the raw/original stream and `Full RTK readmap output: /tmp/...` is the post-RTK/hashline stream; use `read` with targeted `offset`/`limit` only when you need more detail.
 
 # Output Style
