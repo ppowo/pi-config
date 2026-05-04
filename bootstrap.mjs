@@ -78,17 +78,17 @@ async function relink(linkPath, targetPath) {
   assertSafePath(linkPath, [HOME]);
 
   await mkdir(dirname(linkPath), { recursive: true });
-
-  const targetLooksLikeFile = /\.[^/\\]+$/.test(targetPath);
-  if (targetLooksLikeFile) {
-    await mkdir(dirname(targetPath), { recursive: true });
-  } else {
-    await mkdir(targetPath, { recursive: true });
-  }
-
   await rm(linkPath, { recursive: true, force: true });
 
+  if (!existsSync(targetPath)) {
+    console.log(`skip ${linkPath}: target does not exist`);
+    return;
+  }
+
+  const targetLooksLikeFile = /\.[^/\\]+$/.test(targetPath);
+
   if (process.platform === "win32" && targetLooksLikeFile) {
+    await mkdir(dirname(targetPath), { recursive: true });
     await copyFile(targetPath, linkPath);
     console.log(`copied ${targetPath} -> ${linkPath}`);
     return;
