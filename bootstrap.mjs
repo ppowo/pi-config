@@ -11,6 +11,8 @@ const REPO_DIR = dirname(fileURLToPath(import.meta.url));
 const PI_DIR = join(HOME, ".pi", "agent");
 const EXTENSIONS_DIR = join(REPO_DIR, "extensions");
 const PI_EXTENSIONS_DIR = join(PI_DIR, "extensions");
+const THEMES_DIR = join(REPO_DIR, "themes");
+const PI_THEMES_DIR = join(PI_DIR, "themes");
 const XDG_DATA_HOME = process.env.XDG_DATA_HOME ? resolve(process.env.XDG_DATA_HOME) : join(HOME, ".local", "share");
 const DEFAULT_VEX_BIN_DIR = process.platform === "linux"
   ? join(XDG_DATA_HOME, "vex")
@@ -20,7 +22,6 @@ let vexBinDirPromise = null;
 const links = [
   { link: join(PI_DIR, "prompts"), target: join(REPO_DIR, "prompts") },
   { link: join(PI_DIR, "skills"), target: join(REPO_DIR, "skills") },
-  { link: join(PI_DIR, "themes"), target: join(REPO_DIR, "themes") },
   { link: join(PI_DIR, "reminders"), target: join(REPO_DIR, "reminders") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
   { link: join(PI_DIR, "models.json"), target: join(REPO_DIR, "models.json") },
@@ -39,6 +40,7 @@ const RESETTABLE_PI_PATHS = [
   // Fully managed by this repo. settings.json/verbosity.json stay incremental.
   ...links.map(({link}) => link),
   PI_EXTENSIONS_DIR,
+  PI_THEMES_DIR,
   join(PI_DIR, ".managed-extension-entry-names.json"),
   join(PI_DIR, ".managed-local-packages.json"),
 ];
@@ -436,6 +438,29 @@ async function syncExtensionLinks() {
   }
 }
 
+async function syncThemeLinks() {
+  assertSafePath(PI_THEMES_DIR, [PI_DIR]);
+
+  if (existsSync(PI_THEMES_DIR)) {
+    const stat = await lstat(PI_THEMES_DIR);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      await rm(PI_THEMES_DIR, { recursive: true, force: true });
+    }
+  }
+
+  await mkdir(PI_THEMES_DIR, { recursive: true });
+
+  const repoEntries = existsSync(THEMES_DIR)
+    ? (await readdir(THEMES_DIR, { withFileTypes: true }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  for (const entry of repoEntries) {
+    if (entry.name === "github-colorblind.json") continue;
+    await relink(join(PI_THEMES_DIR, entry.name), join(THEMES_DIR, entry.name));
+  }
+}
+
 async function mergeJsonOverlay(
   overlayPath,
   targetPath,
@@ -581,13 +606,14 @@ async function getOsAppearanceMode() {
 async function autoSwitchTheme() {
   const appearance = await getOsAppearanceMode();
   const variant = appearance === "dark" ? "dark" : "light";
-  const themeDir = join(REPO_DIR, "themes");
+  const themeDir = PI_THEMES_DIR;
   const linkPath = join(themeDir, "github-colorblind.json");
   const targetPath = join(themeDir, "github-colorblind", `${variant}.json`);
+  const symlinkTarget = relative(dirname(linkPath), targetPath);
 
   try { await rm(linkPath, { force: true }); } catch {}
-  await symlink(targetPath, linkPath);
-  console.log(`linked theme: github-colorblind.json → github-colorblind/${variant}.json`);
+  await symlink(symlinkTarget, linkPath);
+  console.log(`linked theme: github-colorblind.json → ${symlinkTarget}`);
 }
 
 async function main() {
@@ -602,6 +628,7 @@ async function main() {
   }
 
   await syncExtensionLinks();
+  await syncThemeLinks();
 
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
