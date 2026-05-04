@@ -19,6 +19,7 @@
     "npm:pi-context-zone",
     "npm:pi-scurl",
     "npm:@pborck/pi-de",
+    "npm:@marckrenn/pi-sub-bar",
     {
       "source": "npm:@aliou/pi-synthetic",
       "extensions": [
