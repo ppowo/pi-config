@@ -7,7 +7,6 @@
           "id": "deepseek/deepseek-v4-pro",
           "reasoning": true,
           "thinkingLevelMap": {
-            "low": "low",
             "high": "high",
             "xhigh": "xhigh"
           }
@@ -16,7 +15,6 @@
           "id": "deepseek/deepseek-v4-flash",
           "reasoning": true,
           "thinkingLevelMap": {
-            "low": "low",
             "high": "high",
             "xhigh": "xhigh"
           }
