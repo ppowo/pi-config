@@ -13,7 +13,7 @@ description: Inspect macOS/Linux environment and install the vex shell environme
    - If `~/.bio/bin` exists, use it.
    - Otherwise create `~/.local/share/bin` and use it.
 4. If the install directory is not in `$PATH`, add it to the rc file.
-5. If vex is already installed, report its version (`vex --version` or `vex version`) and compare to latest; if out of date, proceed to download.
+5. If vex is already installed, report its version (`vex --version`) and compare to latest; if out of date, proceed to download.
 6. Download matching binary to the install directory.
 7. Add `eval "$(vex init)"` to the detected shell rc file.
 8. Tell user: "Please restart your shell or log out and back in to use vex." No need to source rc file in the agent process.
@@ -36,7 +36,7 @@ echo "$PATH" | tr ':' '\n' | grep -q "<target_dir>" && echo "in PATH" || echo "N
 ```
 If NOT in PATH, append to rc file **before** the `vex init` line, e.g.:
 ```sh
-echo 'export PATH="$HOME/.local/share/bin:$PATH"' >> ~/.bashrc
+echo 'export PATH="$HOME/.local/share/bin:$PATH"' >> "$RC_FILE"
 ```
 
 ### Download binary
@@ -50,14 +50,14 @@ chmod +x ~/.local/share/bin/vex
 ```
 ### Configure shell
 
-- Detected shell rc: `~/.zshrc`, `~/.bashrc`, `~/.config/fish/config.fish`, etc.
+- Detected shell rc: `~/.zshrc` (macOS default), `~/.bashrc`, `~/.config/fish/config.fish`, etc.
 - Append `eval "$(vex init)"` (bash/zsh) or `vex init | source` (fish).
 - If a new PATH export was added, ensure it comes **before** the vex init line.
 - Inform user: "Please restart your shell or log back in for changes to take effect."
 ### Verify
 
 - `which vex` → should resolve to the install directory.
-- `vex version` (or `vex --version`) → check installed version.
+- `vex --version` → check installed version.
 - `vex path` → should print OS-specific bin directory.
 - `vex list` → should run without error.
 

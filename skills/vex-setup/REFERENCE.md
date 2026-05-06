@@ -56,7 +56,7 @@ Run: `xattr -d com.apple.quarantine <install_dir>/vex`
 ### `vex` exists but `which vex` returns nothing
 Ensure the install directory is in `$PATH` **before** the `eval "$(vex init)"` line in rc file.
 ### Vex already installed
-If vex is already present, run `vex version` to check the installed version. Compare to the GitHub latest release; if outdated, proceed with upgrade. Verify the shell rc file contains the correct `vex init` line before restarting shell.
+If vex is already present, run `vex --version` to check the installed version. Compare to the GitHub latest release; if outdated, proceed with upgrade. Verify the shell rc file contains the correct `vex init` line before restarting shell.
 
 ### `vex` not found after shell restart
 - Check the correct rc file for your shell login mode (e.g. `.zshrc` vs `.zprofile`).
