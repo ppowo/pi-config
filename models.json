@@ -20,6 +20,14 @@
           }
         }
       ]
+    },
+    "github-copilot": {
+      "modelOverrides": {
+        "gpt-5.3-codex": {
+          "contextWindow": 272000,
+          "maxTokens": 128000
+        }
+      }
     }
   }
 }
