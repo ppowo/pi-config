@@ -26,9 +26,9 @@ export default function (pi: ExtensionAPI) {
 
 	return {
 		on: "tool_execution_end",
-		when: () => consecutiveSearchCalls >= 3,
+		when: () => consecutiveSearchCalls >= 4,
 		message:
-			"3 consecutive search calls. Stop casting wider nets—`read` the best result. Use `grep` for exact text/regex after you know the target; `ast_search` for syntax-aware patterns. Narrow with path/glob/lang filters.",
+			"4 consecutive search calls. Stop casting wider nets—`read` the best result. Use `grep` for exact text/regex after you know the target; `ast_search` for syntax-aware patterns. Narrow with path/glob/lang filters.",
 		cooldown: 10,
 	};
 }
