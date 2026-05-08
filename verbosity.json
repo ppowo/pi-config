@@ -1,10 +1,8 @@
 {
   "showIndicator": true,
   "models": {
-    "github-copilot/gpt-5-mini": "low",
-    "openai-codex/gpt-5.4-mini": "low",
-    "openai-codex/gpt-5.4": "low",
-    "openai-codex/gpt-5.5": "low",
-    "github-copilot/gpt-5.3-codex": "low"
+    "github-copilot/gpt-5.3-codex": "low",
+    "openai-codex/gpt-5.3-codex": "low",
+    "openai-codex/gpt-5.4": "low"
   }
 }
