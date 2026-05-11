@@ -5,8 +5,38 @@ It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config 
 
 ## Prerequisites
 
-- Node.js
-- pi installed locally
+- **Node.js** ≥ 20 — see [Installing Node.js](#installing-nodejs)
+- **pi** — see [Installing pi](#installing-pi)
+
+### Installing Node.js
+
+**macOS** (Homebrew):
+```bash
+brew install node
+```
+
+Or install via [fnm](https://github.com/Schniz/fnm#installation) (recommended for managing multiple Node versions).
+
+**Linux** — install via your package manager (`apt`, `dnf`, etc.) or [fnm](https://github.com/Schniz/fnm#installation).
+
+Verify:
+```bash
+node --version   # should be ≥ 20
+```
+
+### Installing pi
+
+Install pi globally with npm:
+```bash
+npm install -g @earendil-works/pi-coding-agent
+```
+
+Verify:
+```bash
+pi --version
+```
+
+> **Tip:** If you manage your shell environments with [vex](https://github.com/ppowo/vex), ask pi to run the **vex-setup** skill — it will inspect your system and install or update vex for you, including PATH integration for bash/zsh.
 
 ## Setup
 From this repo root:
