@@ -9,7 +9,6 @@
     {
       "source": "npm:pi-amplike",
       "extensions": [
-        "extensions/handoff.ts",
         "extensions/session-query.ts"
       ],
       "skills": [

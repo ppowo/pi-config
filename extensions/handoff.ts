@@ -1,8 +1,9 @@
 /**
- * handoff-lite — start a new pi session with a compact handoff summary + session_query.
+ * handoff — start a new pi session with a deterministic, lineage-aware summary.
  *
- * Originally adapted from pi-vcc (MIT License), but intentionally simplified here for
- * handoff-lite so the injected summary stays short and high-signal for the next model.
+ * This is a context-full-safe replacement for LLM-generated handoff prompts: it
+ * compiles compact local summaries and exposes older sessions as bounded refs
+ * that can be queried with session_query only when exact details are needed.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -24,6 +25,11 @@ interface SectionData {
 	filesAndChanges: string[];
 	outstandingContext: string[];
 	userPreferences: string[];
+}
+
+interface SessionHeader {
+	type?: string;
+	parentSession?: string;
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -339,35 +345,56 @@ const formatSummary = (data: SectionData): string => [
 	section("User Preferences", data.userPreferences),
 ].filter(Boolean).join("\n\n");
 
+const compactLine = (text: string, max = 180): string => {
+	const flat = text.replace(/\s+/g, " ").trim();
+	if (flat.length <= max) return flat;
+	return `${flat.slice(0, max - 1).trimEnd()}…`;
+};
+
+const compactItems = (items: string[], maxItems = 2, maxChars = 180): string =>
+	items.slice(0, maxItems).map((item) => compactLine(item, maxChars)).join("; ");
+
 // ─── compile ─────────────────────────────────────────────────────────────────
 
-const compile = (messages: Message[]): string => {
+const compileData = (messages: Message[]): SectionData => {
 	const blocks = filterNoise(normalize(messages));
-	const data = buildSections(blocks);
-	return redact(formatSummary(data));
+	return buildSections(blocks);
 };
 
-const HANDOFF_LITE_PROMPT_PREFIX = "/skill:session-query Continue this task from the parent session below.";
-const HANDOFF_LITE_QUERY_INSTRUCTION =
-	"Before doing anything else, use `session_query` on the parent session above to recover only the context needed to continue from there. Start with targeted questions about the latest task state, relevant files or changes, and any remaining work or blockers. Then continue the goal.";
 
-const isSyntheticHandoffLitePrompt = (text: string): boolean => {
+const HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the session lineage below.";
+const LEGACY_HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the parent session below.";
+
+const isSyntheticHandoffPrompt = (text: string): boolean => {
 	const trimmed = text.trim();
-	if (!trimmed.startsWith(HANDOFF_LITE_PROMPT_PREFIX)) return false;
+	const hasKnownPrefix = trimmed.startsWith(HANDOFF_PROMPT_PREFIX)
+		|| trimmed.startsWith(LEGACY_HANDOFF_PROMPT_PREFIX);
+	if (!hasKnownPrefix) return false;
 	if (!trimmed.includes("**Goal:**")) return false;
-	if (!trimmed.includes("**Parent session:**")) return false;
-	return trimmed.includes(HANDOFF_LITE_QUERY_INSTRUCTION)
-		|| trimmed.includes("Before doing anything else, use `session_query` on the parent session above");
+	return trimmed.includes("**Parent session:**") || trimmed.includes("**Session lineage refs:**");
 };
 
-// Important: exclude the synthetic /handoff-lite user prompt before re-summarizing a session.
-// That prompt already contains a prior "Parent session summary", so keeping it would
-// recursively summarize older summaries and gradually bloat/degrade the handoff context.
-// If buildHandoffLitePrompt() changes, keep this detector/filter in sync.
-const stripSyntheticHandoffLiteMessages = (messages: Message[]): Message[] =>
-	messages.filter((msg) => msg.role !== "user" || !isSyntheticHandoffLitePrompt(textOf(msg.content)));
+// Important: exclude synthetic /handoff user prompts before re-summarizing a session.
+// Those prompts already contain prior summaries/lineage refs, so keeping them would
+// recursively summarize older summaries and gradually bloat/degrade handoff context.
+const stripSyntheticHandoffMessages = (messages: Message[]): Message[] =>
+	messages.filter((msg) => msg.role !== "user" || !isSyntheticHandoffPrompt(textOf(msg.content)));
 
 // ─── session JSONL reader ────────────────────────────────────────────────────
+
+const loadSessionHeader = (sessionFile: string): SessionHeader => {
+	const content = readFileSync(sessionFile, "utf-8");
+	for (const line of content.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const entry = JSON.parse(line);
+			return entry?.type === "session" ? entry : {};
+		} catch {
+			return {};
+		}
+	}
+	return {};
+};
 
 const loadSessionMessages = (sessionFile: string): Message[] => {
 	const content = readFileSync(sessionFile, "utf-8");
@@ -379,54 +406,169 @@ const loadSessionMessages = (sessionFile: string): Message[] => {
 			if (entry.type === "message" && entry.message) rawMessages.push(entry.message);
 		} catch {}
 	}
-	return stripSyntheticHandoffLiteMessages(convertToLlm(rawMessages));
+	return stripSyntheticHandoffMessages(convertToLlm(rawMessages));
 };
 
-// ─── handoff-lite ────────────────────────────────────────────────────────────
+// ─── lineage refs ────────────────────────────────────────────────────────────
 
-const HANDOFF_LITE_GLOBAL_KEY = Symbol.for("pi-config-handoff-lite-pending");
+type LineageRef = {
+	relation: string;
+	sessionFile: string;
+	data?: SectionData;
+	error?: string;
+};
+
+const MAX_LINEAGE_SESSIONS = 6; // parent + up to 5 older ancestors
+const MAX_LINEAGE_SECTION_CHARS = 2500;
+
+const relationName = (index: number): string => {
+	if (index === 0) return "Parent";
+	if (index === 1) return "Grandparent";
+	return `Ancestor ${index + 1}`;
+};
+
+const errorText = (err: unknown): string => err instanceof Error ? err.message : String(err);
+
+const collectSessionLineage = (parentSession: string, parentData: SectionData): LineageRef[] => {
+	const refs: LineageRef[] = [];
+	const seen = new Set<string>();
+	let sessionFile: string | undefined = parentSession;
+
+	for (let index = 0; sessionFile && index < MAX_LINEAGE_SESSIONS; index++) {
+		if (seen.has(sessionFile)) break;
+		seen.add(sessionFile);
+
+		let data: SectionData | undefined = index === 0 ? parentData : undefined;
+		let error: string | undefined;
+		let nextSession: string | undefined;
+
+		try {
+			if (!data) {
+				const messages = loadSessionMessages(sessionFile);
+				data = compileData(messages);
+			}
+			const header = loadSessionHeader(sessionFile);
+			nextSession = typeof header.parentSession === "string" ? header.parentSession : undefined;
+		} catch (err) {
+			error = errorText(err);
+		}
+
+		refs.push({ relation: relationName(index), sessionFile, data, error });
+		sessionFile = nextSession;
+	}
+
+	return refs;
+};
+
+const formatLineageRef = (ref: LineageRef, index: number): string => {
+	const lines = [`${index + 1}. ${ref.relation}: \`${ref.sessionFile}\``];
+	if (index === 0) {
+		lines.push("   - Summary: see Parent session summary above.");
+		lines.push("   - Query if: exact details from the immediate previous session are required.");
+		return lines.join("\n");
+	}
+	if (ref.error) {
+		lines.push(`   - Summary unavailable: ${compactLine(ref.error, 140)}`);
+		lines.push("   - Query if: you specifically need this session and the file is available.");
+		return lines.join("\n");
+	}
+
+	const data = ref.data;
+	if (!data) {
+		lines.push("   - Summary unavailable.");
+		lines.push("   - Query if: you specifically need exact details from this earlier session.");
+		return lines.join("\n");
+	}
+
+	const goal = compactItems(data.sessionGoal, 2, 170);
+	const files = compactItems(data.filesAndChanges, 2, 170);
+	const outstanding = compactItems(data.outstandingContext, 1, 170);
+	const prefs = compactItems(data.userPreferences, 1, 170);
+
+	if (goal) lines.push(`   - Goal: ${goal}`);
+	if (files) lines.push(`   - Files: ${files}`);
+	if (outstanding) lines.push(`   - Outstanding: ${outstanding}`);
+	if (prefs) lines.push(`   - Preference: ${prefs}`);
+	if (!goal && !files && !outstanding && !prefs) lines.push("   - Summary: no high-signal deterministic summary extracted.");
+	lines.push("   - Query if: this card matches a specific missing fact you need.");
+	return lines.join("\n");
+};
+
+const formatSessionLineage = (refs: LineageRef[]): string => {
+	if (refs.length === 0) return "";
+	const intro = [
+		"**Session lineage refs:**",
+		"Use visible summaries first. Do not query every session. Use `session_query` only for a specific missing fact, choosing the listed session whose ref card matches the need.",
+	].join("\n");
+
+	const rendered: string[] = [];
+	let chars = intro.length;
+	for (const [index, ref] of refs.entries()) {
+		const card = formatLineageRef(ref, index);
+		if (rendered.length > 0 && chars + card.length + 2 > MAX_LINEAGE_SECTION_CHARS) {
+			rendered.push(`… ${refs.length - rendered.length} older session ref(s) omitted to keep the handoff bounded.`);
+			break;
+		}
+		rendered.push(card);
+		chars += card.length + 2;
+	}
+
+	return [intro, ...rendered].join("\n\n");
+};
+
+// ─── handoff ─────────────────────────────────────────────────────────────────
+
+const HANDOFF_GLOBAL_KEY = Symbol.for("pi-config-handoff-pending");
+
+const EMPTY_SECTION_DATA: SectionData = {
+	sessionGoal: [],
+	filesAndChanges: [],
+	outstandingContext: [],
+	userPreferences: [],
+};
 
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 
-type PendingHandoffLite = {
+type PendingHandoff = {
 	prompt: string;
 	provider: string;
 	modelId: string;
 	thinkingLevel: ThinkingLevel;
 } | null;
 
-function getPendingHandoffLite(): PendingHandoffLite {
-	return (globalThis as Record<symbol, PendingHandoffLite | undefined>)[HANDOFF_LITE_GLOBAL_KEY] ?? null;
+function getPendingHandoff(): PendingHandoff {
+	return (globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY] ?? null;
 }
 
-function setPendingHandoffLite(data: PendingHandoffLite) {
+function setPendingHandoff(data: PendingHandoff) {
 	if (data) {
-		(globalThis as Record<symbol, PendingHandoffLite | undefined>)[HANDOFF_LITE_GLOBAL_KEY] = data;
+		(globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY] = data;
 	} else {
-		delete (globalThis as Record<symbol, PendingHandoffLite | undefined>)[HANDOFF_LITE_GLOBAL_KEY];
+		delete (globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY];
 	}
 }
 
-function buildHandoffLitePrompt(goal: string, parentSession: string, summary: string): string {
+function buildHandoffPrompt(goal: string, parentSession: string, summary: string, lineageSection: string): string {
 	return [
-		HANDOFF_LITE_PROMPT_PREFIX,
+		HANDOFF_PROMPT_PREFIX,
 		`**Goal:** ${goal}`,
 		`**Parent session summary:**\n${summary}`,
 		`**Parent session:** \`${parentSession}\``,
-		HANDOFF_LITE_QUERY_INSTRUCTION,
-	].join("\n\n");
+		lineageSection,
+		"Continue from the visible handoff summary. If an exact fact is missing, use `session_query` with the relevant listed session path. Do not query every session by default.",
+	].filter(Boolean).join("\n\n");
 }
 
-async function restoreHandoffLiteState(
+async function restoreHandoffState(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-	pending: Exclude<PendingHandoffLite, null>,
+	pending: Exclude<PendingHandoff, null>,
 ) {
 	const model = ctx.modelRegistry.find(pending.provider, pending.modelId);
 	if (!model) {
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				`Handoff-lite: could not restore ${pending.provider}/${pending.modelId}; using current session model`,
+				`Handoff: could not restore ${pending.provider}/${pending.modelId}; using current session model`,
 				"warning",
 			);
 		}
@@ -434,7 +576,7 @@ async function restoreHandoffLiteState(
 		const ok = await pi.setModel(model);
 		if (!ok && ctx.hasUI) {
 			ctx.ui.notify(
-				`Handoff-lite: no API key for ${pending.provider}/${pending.modelId}; using current session model`,
+				`Handoff: no API key for ${pending.provider}/${pending.modelId}; using current session model`,
 				"warning",
 			);
 		}
@@ -443,55 +585,57 @@ async function restoreHandoffLiteState(
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.on("session_start", async (event, ctx: ExtensionContext) => {
-		if (event.reason !== "new") return;
-
-		const pending = getPendingHandoffLite();
+	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
+		const pending = getPendingHandoff();
 		if (!pending) return;
 
-		setPendingHandoffLite(null);
-		await restoreHandoffLiteState(pi, ctx, pending);
+		setPendingHandoff(null);
+		await restoreHandoffState(pi, ctx, pending);
 		pi.sendUserMessage(pending.prompt);
 	});
 
-	pi.registerCommand("handoff-lite", {
-		description: "Start a new session with a VCC summary + session-query handoff prompt",
+	pi.registerCommand("handoff", {
+		description: "Start a new session with a deterministic summary + bounded session lineage refs",
 		handler: async (args, ctx: ExtensionCommandContext) => {
 			const goal = args.trim();
 			if (!goal) {
-				ctx.ui.notify("Usage: /handoff-lite <goal>", "error");
+				ctx.ui.notify("Usage: /handoff <goal>", "error");
 				return;
 			}
 
 			const parentSession = ctx.sessionManager.getSessionFile();
 			if (!parentSession) {
-				ctx.ui.notify("Handoff-lite needs a saved parent session.", "error");
+				ctx.ui.notify("Handoff needs a saved parent session.", "error");
 				return;
 			}
 
 			const currentModel = ctx.model;
 			if (!currentModel) {
-				ctx.ui.notify("Handoff-lite requires an active model.", "error");
+				ctx.ui.notify("Handoff requires an active model.", "error");
 				return;
 			}
 			const currentThinkingLevel = pi.getThinkingLevel();
 
+			let parentData: SectionData = EMPTY_SECTION_DATA;
 			let summary = "(no summary available)";
 			try {
 				const messages = loadSessionMessages(parentSession);
-				const compiled = messages.length > 0 ? compile(messages).trim() : "";
+				parentData = messages.length > 0 ? compileData(messages) : EMPTY_SECTION_DATA;
+				const compiled = redact(formatSummary(parentData)).trim();
 				if (compiled) summary = compiled;
 			} catch {}
 
-			setPendingHandoffLite({
-				prompt: buildHandoffLitePrompt(goal, parentSession, summary),
+			const lineageSection = formatSessionLineage(collectSessionLineage(parentSession, parentData));
+
+			setPendingHandoff({
+				prompt: buildHandoffPrompt(goal, parentSession, summary, lineageSection),
 				provider: currentModel.provider,
 				modelId: currentModel.id,
 				thinkingLevel: currentThinkingLevel,
 			});
 			const result = await ctx.newSession({ parentSession });
 			if (result.cancelled) {
-				setPendingHandoffLite(null);
+				setPendingHandoff(null);
 			}
 		},
 	});
