@@ -630,6 +630,21 @@ async function main() {
   await syncExtensionLinks();
   await syncThemeLinks();
 
+  // Seed pi-quotas config so it doesn't show its one-time migration notice banner.
+  const QUOTAS_CONFIG = join(PI_EXTENSIONS_DIR, "quotas.json");
+  const DEFAULT_QUOTAS_CONFIG = {
+    configVersion: "0.2.6",
+    quotasCommand: true,
+    providerCommands: true,
+    usageStatus: true,
+    quotaWarnings: true,
+    deferToSynthetic: true,
+  };
+  if (!existsSync(QUOTAS_CONFIG)) {
+    await writeJsonFile(QUOTAS_CONFIG, DEFAULT_QUOTAS_CONFIG);
+    console.log(`seeded pi-quotas config: ${QUOTAS_CONFIG}`);
+  }
+
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
   await mergeJsonOverlay(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, PI_WEB_TOOLS_OWNED_STATE, "pi web-tools overlay");
