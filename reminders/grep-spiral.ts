@@ -5,7 +5,7 @@
  * identical repeated calls) by flagging consecutive *different* searches
  * across the code-search tools.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type ToolResultEvent = {
 	toolName?: string;

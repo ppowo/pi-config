@@ -5,7 +5,7 @@
  * In headless mode (no UI), dangerous commands are blocked.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type Rule = [name: string, test: (command: string) => boolean];
 

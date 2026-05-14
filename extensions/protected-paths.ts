@@ -4,7 +4,7 @@
  * Blocks writes to sensitive paths. Env templates are allowed; real .env files ask first.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type Action = "allow" | "ask" | "block";
 type Rule = [name: string, action: Action, pattern: RegExp];

@@ -6,9 +6,9 @@
  * that can be queried with session_query only when exact details are needed.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { convertToLlm } from "@mariozechner/pi-coding-agent";
-import type { Message } from "@mariozechner/pi-ai";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { convertToLlm } from "@earendil-works/pi-coding-agent";
+import type { Message } from "@earendil-works/pi-ai";
 import { readFileSync } from "fs";
 
 // ─── types ───────────────────────────────────────────────────────────────────
