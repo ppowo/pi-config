@@ -23,6 +23,7 @@ type NormalizedBlock =
 interface SectionData {
 	sessionGoal: string[];
 	filesAndChanges: string[];
+	conversationTail: string[];
 	outstandingContext: string[];
 	userPreferences: string[];
 }
@@ -282,6 +283,33 @@ const extractPreferences = (blocks: NormalizedBlock[]): string[] => {
 
 // ─── brief transcript ────────────────────────────────────────────────────────
 
+const MAX_TAIL_BLOCKS = 4;
+const MAX_TAIL_BLOCK_CHARS = 180;
+const MAX_TAIL_SECTION_CHARS = 1000;
+const TAIL_QUERY_HINT = "Hint: If this tail is insufficient, use `session_query` on the Parent session for how the prior session ended.";
+
+const formatRole = (kind: "user" | "assistant"): string => kind;
+
+const extractConversationTail = (blocks: NormalizedBlock[]): string[] => {
+	const conversational = blocks.filter((block): block is Extract<NormalizedBlock, { kind: "user" | "assistant" }> =>
+		block.kind === "user" || block.kind === "assistant",
+	);
+
+	const tail = conversational.slice(-MAX_TAIL_BLOCKS).map((block) => {
+		const text = compactLine(block.text, MAX_TAIL_BLOCK_CHARS);
+		return `${formatRole(block.kind)}: ${text}`;
+	});
+
+	const items: string[] = [];
+	let chars = TAIL_QUERY_HINT.length + 2;
+	for (const item of tail) {
+		if (chars + item.length + 2 > MAX_TAIL_SECTION_CHARS) break;
+		items.push(item);
+		chars += item.length + 2;
+	}
+	return [...items, TAIL_QUERY_HINT];
+};
+
 
 // ─── build sections ──────────────────────────────────────────────────────────
 
@@ -325,6 +353,7 @@ const buildSections = (blocks: NormalizedBlock[]): SectionData => {
 	return {
 		sessionGoal,
 		filesAndChanges: formatFileActivity(blocks),
+		conversationTail: extractConversationTail(blocks),
 		outstandingContext: extractOutstandingContext(blocks, sessionGoal),
 		userPreferences: extractPreferences(blocks),
 	};
@@ -341,6 +370,7 @@ const section = (title: string, items: string[]): string => {
 const formatSummary = (data: SectionData): string => [
 	section("Session Goal", data.sessionGoal),
 	section("Files And Changes", data.filesAndChanges),
+	section("Conversation Tail", data.conversationTail),
 	section("Outstanding Context", data.outstandingContext),
 	section("User Preferences", data.userPreferences),
 ].filter(Boolean).join("\n\n");
@@ -523,6 +553,7 @@ const HANDOFF_GLOBAL_KEY = Symbol.for("pi-config-handoff-pending");
 const EMPTY_SECTION_DATA: SectionData = {
 	sessionGoal: [],
 	filesAndChanges: [],
+	conversationTail: [],
 	outstandingContext: [],
 	userPreferences: [],
 };
