@@ -1,5 +1,3 @@
 {
-  "tools": {
-    "fetch_content": false
-  }
+  "filterModel": "openrouter/free"
 }

@@ -13,33 +13,30 @@
       ],
       "skills": [
         "skills/session-query/SKILL.md"
-      ]
+      ],
+      "prompts": [],
+      "themes": []
+    },
+    {
+      "source": "npm:@aliou/pi-synthetic",
+      "extensions": [
+        "src/extensions/provider/index.ts"
+      ],
+      "skills": [],
+      "prompts": [],
+      "themes": []
     },
     "npm:pi-context-zone",
     "npm:pi-scurl",
     "npm:@pborck/pi-de",
-    "npm:@marckrenn/pi-sub-bar",
-    {
-      "source": "npm:@aliou/pi-synthetic",
-      "extensions": [
-        "src/extensions/provider/index.ts",
-        "src/extensions/sub-bar-integration/index.ts"
-      ]
-    },
-    {
-      "source": "https://github.com/aliou/pi-neuralwatt",
-      "extensions": [
-        "src/extensions/provider/index.ts",
-        "src/extensions/sub-bar-integration/index.ts"
-      ]
-    },
+    "npm:@latentminds/pi-quotas",
+    "https://github.com/aliou/pi-neuralwatt",
     "npm:@tintinweb/pi-tasks",
     "npm:pi-verbosity-control",
-    "npm:@aaronmaturen/pi-context7",
-    "npm:@robhowley/spinner-verbs",
+    "npm:@dustydonkey/pi-spinner",
     "https://github.com/coctostan/pi-hashline-readmap",
-    "npm:pi-system-reminders",
     "https://github.com/coctostan/pi-web-tools",
+    "npm:pi-system-reminders",
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [
