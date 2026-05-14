@@ -63,7 +63,7 @@ the appropriate variant based on OS appearance mode.
 - A **Package** can bring any combination of **Extensions**, **Skills**, and
 **Themes**. This repo selectively loads only the pieces it wants through `settings.json`.
 - **Overlay** merge is used for JSON config files that pi mutates at runtime
-(`settings.json`, `verbosity.json`, `web-tools.json`, `synthetic.json`). The repo
+(`settings.json`, `verbosity.json`, `web-tools.json`). The repo
 owns leaf paths; local additions survive reconciliation.
 - **Symlink** is used for static assets that pi only reads (`prompts/`,
 `skills/`, `themes/`, `extensions/`, `APPEND_SYSTEM.md`, `models.json`).

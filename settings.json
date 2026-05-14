@@ -26,6 +26,13 @@
         "src/extensions/sub-bar-integration/index.ts"
       ]
     },
+    {
+      "source": "https://github.com/aliou/pi-neuralwatt",
+      "extensions": [
+        "src/extensions/provider/index.ts",
+        "src/extensions/sub-bar-integration/index.ts"
+      ]
+    },
     "npm:@tintinweb/pi-tasks",
     "npm:pi-verbosity-control",
     "npm:@aaronmaturen/pi-context7",
