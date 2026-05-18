@@ -5,7 +5,7 @@ It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config 
 
 ## Prerequisites
 
-- **Node.js** ≥ 20 — see [Installing Node.js](#installing-nodejs)
+- **Node.js** ≥ 22.19.0 — see [Installing Node.js](#installing-nodejs)
 - **pi** — see [Installing pi](#installing-pi)
 
 ### Installing Node.js
@@ -21,7 +21,7 @@ Or install via [fnm](https://github.com/Schniz/fnm#installation) (recommended fo
 
 Verify:
 ```bash
-node --version   # should be ≥ 20
+node --version   # should be ≥ 22.19.0
 ```
 
 ### Installing pi
