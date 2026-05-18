@@ -2,6 +2,7 @@
   "theme": "github-colorblind",
   "npmCommand": [
     "npm",
+    "--ignore-scripts=false",
     "--legacy-peer-deps"
   ],
   "packages": [

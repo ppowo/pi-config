@@ -1,7 +1,7 @@
 # pi-config
 
 My personal pi agent config repo.
-It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config in version control, bootstraps them into `~/.pi/agent`, and sets up pi Nushell config in `~/.config/pi/nushell`.
+It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config in version control and bootstraps them into `~/.pi/agent`.
 
 ## Prerequisites
 
@@ -62,7 +62,6 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
   - `~/.pi/agent/settings.json` (from `settings.json`)
   - `~/.pi/agent/verbosity.json` (from `verbosity.json`)
   - `~/.pi/web-tools.json` (from `web-tools.json`)
-- if `nu` is available, generates `~/.config/pi/nushell/config.nu` and `plugins.msgpackz`, registering optional Nushell plugins found on `PATH`
 
 ## Repo layout
 
@@ -73,7 +72,6 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
 - `themes/` — pi themes
 - `reminders/` — global reminder definitions for `pi-system-reminders`
 - `APPEND_SYSTEM.md` — extra system prompt text appended into pi
-- `nushell/` — notes about pi Nushell bootstrap
 - `settings.json` — repo-managed pi settings overlay, including installed packages/extensions
 - `verbosity.json` — repo-managed pi-verbosity-control overlay
 - `models.json` — custom provider/model definitions symlinked into pi (for example OpenRouter via `OPENROUTER_API_KEY`)
