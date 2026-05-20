@@ -1,5 +1,21 @@
 {
   "providers": {
+    "openrouter": {
+      "modelOverrides": {
+        "deepseek/deepseek-v4-pro": {
+          "thinkingLevelMap": {
+            "high": "high",
+            "xhigh": "xhigh"
+          }
+        },
+        "deepseek/deepseek-v4-flash": {
+          "thinkingLevelMap": {
+            "high": "high",
+            "xhigh": "xhigh"
+          }
+        }
+      }
+    },
     "github-copilot": {
       "modelOverrides": {
         "gpt-5.3-codex": {
