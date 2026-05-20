@@ -1,42 +1,5 @@
 {
   "providers": {
-    "openrouter": {
-      "apiKeyEnv": "OPENROUTER_API_KEY",
-      "models": [
-        {
-          "id": "deepseek/deepseek-v4-pro",
-          "reasoning": true,
-          "cost": {
-            "input": 0.435,
-            "output": 0.87,
-            "cacheRead": 0.003625,
-            "cacheWrite": 0
-          },
-          "contextWindow": 1050000,
-          "maxTokens": 384000,
-          "thinkingLevelMap": {
-            "high": "high",
-            "xhigh": "xhigh"
-          }
-        },
-        {
-          "id": "deepseek/deepseek-v4-flash",
-          "reasoning": true,
-          "cost": {
-            "input": 0.14,
-            "output": 0.28,
-            "cacheRead": 0.0028,
-            "cacheWrite": 0
-          },
-          "contextWindow": 1050000,
-          "maxTokens": 384000,
-          "thinkingLevelMap": {
-            "high": "high",
-            "xhigh": "xhigh"
-          }
-        }
-      ]
-    },
     "github-copilot": {
       "modelOverrides": {
         "gpt-5.3-codex": {
