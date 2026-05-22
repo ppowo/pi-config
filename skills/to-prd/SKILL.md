@@ -12,7 +12,7 @@ This skill is fully local/offline. Do NOT create GitHub issues, open browsers, c
 Write one Markdown file per PRD under:
 
 ```text
-~/.pi/prds/
+~/.pi-markdown/prds/
 ```
 
 If the directory does not exist, create it before writing the PRD.
@@ -40,7 +40,7 @@ Rules:
 Example:
 
 ```text
-~/.pi/prds/2026-04-25T14-32-08Z--Developer-pi-config--offline-prd-generation.md
+~/.pi-markdown/prds/2026-04-25T14-32-08Z--Developer-pi-config--offline-prd-generation.md
 ```
 
 After writing the PRD, report the exact created path to the user.
@@ -55,7 +55,7 @@ A deep module (as opposed to a shallow module) is one which encapsulates a lot o
 
 Check with the user that these modules match their expectations. Check with the user which modules they want tests written for. This is the only required checkpoint; do not conduct a broad interview.
 
-3. Write the PRD using the template below to a local Markdown file in `~/.pi/prds/`.
+3. Write the PRD using the template below to a local Markdown file in `~/.pi-markdown/prds/`.
 
 ## Frontmatter
 

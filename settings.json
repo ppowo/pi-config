@@ -41,17 +41,14 @@
       "skills": [
         "skills/productivity/grill-me/SKILL.md",
         "skills/engineering/grill-with-docs/SKILL.md",
-        "skills/engineering/improve-codebase-architecture/SKILL.md",
         "skills/engineering/tdd/SKILL.md",
         "skills/engineering/prototype/SKILL.md",
         "skills/engineering/zoom-out/SKILL.md",
         "skills/engineering/diagnose/SKILL.md",
         "skills/productivity/write-a-skill/SKILL.md",
-        "skills/deprecated/ubiquitous-language/SKILL.md"
       ]
     }
   ],
-  "skills": [],
   "compaction": {
     "enabled": false
   }

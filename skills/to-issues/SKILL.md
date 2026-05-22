@@ -14,7 +14,7 @@ This skill is fully local/offline. Do NOT create GitHub issues, open browsers, c
 Write one Markdown file containing all drafted issues under:
 
 ```text
-~/.pi/issues/
+~/.pi-markdown/issues/
 ```
 
 If the directory does not exist, create it before writing the issue draft file.
@@ -42,7 +42,7 @@ Rules:
 Example:
 
 ```text
-~/.pi/issues/2026-04-25T14-32-08Z--Developer-pi-config--offline-issue-drafts.md
+~/.pi-markdown/issues/2026-04-25T14-32-08Z--Developer-pi-config--offline-issue-drafts.md
 ```
 
 After writing the issue draft file, report the exact created path to the user.
@@ -90,7 +90,7 @@ Iterate until the user approves the breakdown.
 
 ### 5. Write the local issue draft file
 
-After approval, write one Markdown file containing all drafted issues to `~/.pi/issues/` using the filename rules above.
+After approval, write one Markdown file containing all drafted issues to `~/.pi-markdown/issues/` using the filename rules above.
 
 Do not create pi task tracker entries with `TaskCreate`. The output of this skill is the local Markdown issue draft file only.
 
