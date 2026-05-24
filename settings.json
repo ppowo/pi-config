@@ -27,7 +27,6 @@
       "themes": []
     },
     "npm:pi-context-zone",
-    "npm:pi-scurl",
     "npm:@pborck/pi-de",
     "npm:@latentminds/pi-quotas",
     "https://github.com/aliou/pi-neuralwatt",
