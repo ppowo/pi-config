@@ -31,6 +31,9 @@ const PI_VERBOSITY_OWNED_STATE = join(PI_DIR, ".verbosity-overlay-owned-paths.js
 const WEB_TOOLS_OVERLAY = join(REPO_DIR, "web-tools.json");
 const PI_WEB_TOOLS = join(HOME, ".pi", "web-tools.json");
 const PI_WEB_TOOLS_OWNED_STATE = join(PI_DIR, ".web-tools-overlay-owned-paths.json");
+const HASHLINE_READMAP_OVERLAY = join(REPO_DIR, "hashline-readmap-settings.json");
+const PI_HASHLINE_READMAP_SETTINGS = join(PI_DIR, "hashline-readmap", "settings.json");
+const PI_HASHLINE_READMAP_OWNED_STATE = join(PI_DIR, ".hashline-readmap-overlay-owned-paths.json");
 const RESETTABLE_PI_PATHS = [
   // Fully managed by this repo. settings.json/verbosity.json stay incremental.
   ...links.map(({link}) => link),
@@ -459,6 +462,7 @@ async function main() {
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
   await mergeJsonOverlay(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, PI_WEB_TOOLS_OWNED_STATE, "pi web-tools overlay");
+  await mergeJsonOverlay(HASHLINE_READMAP_OVERLAY, PI_HASHLINE_READMAP_SETTINGS, PI_HASHLINE_READMAP_OWNED_STATE, "hashline-readmap settings overlay");
 
   console.log("bootstrap complete");
 

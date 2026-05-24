@@ -36,8 +36,6 @@ Verify:
 pi --version
 ```
 
-> **Tip:** If you manage your shell environments with [vex](https://github.com/ppowo/vex), ask pi to run the **vex-setup** skill — it will inspect your system and install or update vex for you, including PATH integration for bash/zsh.
-
 ## Setup
 From this repo root:
 ```bash
@@ -62,6 +60,7 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
   - `~/.pi/agent/settings.json` (from `settings.json`)
   - `~/.pi/agent/verbosity.json` (from `verbosity.json`)
   - `~/.pi/web-tools.json` (from `web-tools.json`)
+  - `~/.pi/agent/hashline-readmap/settings.json` (from `hashline-readmap-settings.json`)
 
 ## Repo layout
 
