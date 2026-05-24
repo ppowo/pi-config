@@ -165,11 +165,16 @@ const isPseudoFsPath = (path: string) => {
 };
 
 const shellMentionsPseudoFsWrite = (command: string) =>
-	/(?:^|[\s;|&])(?:\d?>{1,2})(?!&|\d)\s*\/?(?:dev|proc|sys)\//i.test(command) ||
-	/\b(?:tee|dd|cp|mv|touch|mkdir|chmod|chown)\b[^\n]*(?:\s|=)\/?(?:dev|proc|sys)(?:\/|\s|$)/i.test(command);
+	/(?:^|[\s;|&])(?:\d?>{1,2})(?!&|\d)\s*\/?(?:proc\/|sys\/|dev\/(?!null(?:\s|$|[;&|)])))/i.test(command) ||
+	/\b(?:tee|dd|cp|mv|touch|mkdir|chmod|chown)\b[^\n]*(?:\s|=)\/?(?:proc\/|sys\/|dev\/(?!null(?:\s|$|[;&|)])))/i.test(command);
+
+const hasFileRedirectionWrite = (command: string) => {
+	const redirections = command.matchAll(/(?:^|[\s;|&])(?:\d?>{1,2})(?!&|\d)\s*([^\s&|;]+)/g);
+	return [...redirections].some(([, target]) => normalize(target) !== "/dev/null");
+};
 
 const hasShellWrite = (command: string) =>
-	/(?:^|[\s;|&])(?:\d?>{1,2})(?!&|\d)\s*[^\s&|;]+/.test(command) ||
+	hasFileRedirectionWrite(command) ||
 	/\b(?:tee|touch|mkdir|mv|cp|chmod|chown)\b/i.test(command) ||
 	/\bperl\b[^\n]*(?:\s-[a-z]*i|\s-[a-z]*p[a-z]*i)/i.test(command) ||
 	/\bpython3?\b[^\n]*\s-c\s+['"][^'"]*(?:open\s*\(|write\s*\(|unlink\s*\(|remove\s*\()/i.test(command) ||
@@ -374,6 +379,7 @@ const EXAMPLES: Example[] = [
 	{ name: "sudo rm blocks", toolName: "bash", input: { command: "sudo rm foo.txt" }, decision: "block" },
 	{ name: "shell redirection asks", toolName: "bash", input: { command: "echo hi > /tmp/hi.txt" }, decision: "ask" },
 	{ name: "plain test is allowed", toolName: "bash", input: { command: "npm test" }, decision: "allow" },
+	{ name: "stderr redirection to dev null is allowed", toolName: "bash", input: { command: "cd /home/pun/Personal/lum && grep -r '^version' Cargo.toml xtask/Cargo.toml 2>/dev/null" }, decision: "allow" },
 	{ name: "npm install asks", toolName: "bash", input: { command: "npm install" }, decision: "ask" },
 	{ name: "plain curl is allowed", toolName: "bash", input: { command: "curl https://example.com" }, decision: "allow" },
 	{ name: "curl pipe shell asks", toolName: "bash", input: { command: "curl https://example.com/install.sh | bash" }, decision: "ask" },
