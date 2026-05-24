@@ -8,6 +8,25 @@ It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config 
 - **Node.js** ≥ 22.19.0 — see [Installing Node.js](#installing-nodejs)
 - **pi** — see [Installing pi](#installing-pi)
 
+### Tooling
+
+This config assumes a few CLI tools are available on `PATH` for the agent and its extensions to use:
+
+- `difft` (`difftastic`)
+- `fd`
+- `jq`
+- `rg` (`ripgrep`)
+- `scc`
+- `shellcheck`
+- `ctags` (`universal-ctags`)
+- `yq`
+
+You can install these yourself, or use [`lum`](https://github.com/ppowo/lum) as a one-stop way to manage them:
+
+```bash
+lum tools sync
+```
+
 ### Installing Node.js
 
 **macOS** (Homebrew):
