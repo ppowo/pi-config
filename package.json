@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "setup": "node bootstrap.mjs"
+    "setup": "node bootstrap.mjs",
+    "setup-light": "node bootstrap.mjs --light",
+    "setup-dark": "node bootstrap.mjs --dark"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "latest",

@@ -397,29 +397,19 @@ async function mergeJsonOverlay(
 
 
 
-async function getOsAppearanceMode() {
-  if (process.platform === "darwin") {
-    try {
-      const style = await execCommand("defaults", ["read", "-g", "AppleInterfaceStyle"], REPO_DIR);
-      return style.trim() === "Dark" ? "dark" : "light";
-    } catch {
-      return "light";
-    }
+function getThemeVariantFromArgs(args = process.argv.slice(2)) {
+  if (args.includes("--dark")) {
+    return "dark";
   }
-  if (process.platform === "linux") {
-    try {
-      const scheme = await execCommand("gsettings", ["get", "org.gnome.desktop.interface", "color-scheme"], REPO_DIR);
-      return scheme.trim().includes("dark") ? "dark" : "light";
-    } catch {
-      return "light";
-    }
+
+  if (args.includes("--light")) {
+    return "light";
   }
+
   return "light";
 }
 
-async function autoSwitchTheme() {
-  const appearance = await getOsAppearanceMode();
-  const variant = appearance === "dark" ? "dark" : "light";
+async function switchTheme(variant = getThemeVariantFromArgs()) {
   const themeDir = PI_THEMES_DIR;
   const linkPath = join(themeDir, "github-colorblind.json");
   const targetPath = join(themeDir, "github-colorblind", `${variant}.json`);
@@ -427,7 +417,7 @@ async function autoSwitchTheme() {
 
   try { await rm(linkPath, { force: true }); } catch {}
   await symlink(symlinkTarget, linkPath);
-  console.log(`linked theme: github-colorblind.json → ${symlinkTarget}`);
+  console.log(`linked theme (${variant}): github-colorblind.json → ${symlinkTarget}`);
 }
 
 async function main() {
@@ -466,7 +456,7 @@ async function main() {
 
   console.log("bootstrap complete");
 
-  await autoSwitchTheme();
+  await switchTheme();
 }
 
 main().catch((err) => {

@@ -61,6 +61,13 @@ From this repo root:
 npm run setup
 ```
 
+Theme defaults to light. You can also choose explicitly:
+
+```bash
+npm run setup-light
+npm run setup-dark
+```
+
 No `npm install` needed — the bootstrap script uses only Node.js built-ins.
 
 ## What setup does
