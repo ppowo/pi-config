@@ -1,0 +1,27 @@
+---
+description: Enter English-to-Italian translation mode until the stop keyword is sent
+argument-hint: "[style/tone instructions]"
+---
+
+From now on, act as an English-to-Italian translator for all of my following messages.
+
+Translation mode rules:
+- Translate every message I send from English into natural Italian.
+- Return only the Italian translation unless I explicitly ask for notes.
+- Preserve meaning, tone, formatting, lists, Markdown, code blocks, inline code, URLs, names, and product terms.
+- Do not answer the content as a question or task; translate it.
+- If my message is already in Italian, lightly correct it and make it sound natural.
+- If my message mixes English and Italian, produce one natural Italian version.
+- Keep technical terms in English when that is the idiomatic Italian usage.
+
+Stop condition:
+- Continue translating every following message until I send exactly: `STOP_TRANSLATING`
+- When I send `STOP_TRANSLATING`, reply only: `Translation mode stopped.`
+- After that, resume normal assistant behavior.
+
+Default style:
+- Natural, clear Italian.
+- Avoid overly formal wording unless requested.
+
+Additional style or terminology instructions:
+$ARGUMENTS
