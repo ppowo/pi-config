@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -95,68 +94,9 @@ async function relink(linkPath, targetPath) {
   console.log(`linked ${linkPath} -> ${targetPath}`);
 }
 
-
-
 async function ensureParentDir(path) {
   await mkdir(dirname(path), { recursive: true });
 }
-
-async function writeManagedFile(path, content) {
-  assertSafePath(path, [HOME]);
-  await ensureParentDir(path);
-
-  if (existsSync(path)) {
-    const stat = await lstat(path);
-    if (stat.isDirectory() || stat.isSymbolicLink()) {
-      await rm(path, { recursive: true, force: true });
-    }
-  }
-
-  await writeFile(path, content);
-}
-
-async function execCommand(command, args, cwd, options = {}) {
-  const captureOutput = options.captureOutput !== false;
-
-  return await new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: { ...process.env, ...(options.env ?? {}) },
-      stdio: captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
-      shell: false,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    if (captureOutput) {
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString("utf-8");
-      });
-
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString("utf-8");
-      });
-    }
-
-    child.on("error", rejectPromise);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolvePromise(captureOutput ? stdout.trim() : "");
-        return;
-      }
-
-      if (captureOutput) {
-        const detail = stderr.trim() || stdout.trim() || `exit code ${code}`;
-        rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd}: ${detail}`));
-        return;
-      }
-
-      rejectPromise(new Error(`${command} ${args.join(" ")} failed in ${cwd} with exit code ${code}`));
-    });
-  });
-}
-
 
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -438,14 +378,11 @@ async function main() {
   await syncThemeLinks();
 
   await mergeJsonOverlay(QUOTAS_OVERLAY, PI_QUOTAS, PI_QUOTAS_OWNED_STATE, "pi-quotas settings overlay");
-
   await mergeJsonOverlay(SETTINGS_OVERLAY, PI_SETTINGS, PI_SETTINGS_OWNED_STATE, "pi settings overlay");
   await mergeJsonOverlay(VERBOSITY_OVERLAY, PI_VERBOSITY, PI_VERBOSITY_OWNED_STATE, "pi verbosity overlay");
   await mergeJsonOverlay(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, PI_WEB_TOOLS_OWNED_STATE, "pi web-tools overlay");
   await mergeJsonOverlay(HASHLINE_READMAP_OVERLAY, PI_HASHLINE_READMAP_SETTINGS, PI_HASHLINE_READMAP_OWNED_STATE, "hashline-readmap settings overlay");
-
   console.log("bootstrap complete");
-
   await switchTheme();
 }
 
