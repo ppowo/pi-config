@@ -38,13 +38,16 @@
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [
-        "skills/productivity/grill-me/SKILL.md",
-        "skills/engineering/grill-with-docs/SKILL.md",
-        "skills/engineering/tdd/SKILL.md",
-        "skills/engineering/prototype/SKILL.md",
-        "skills/engineering/zoom-out/SKILL.md",
-        "skills/engineering/diagnose/SKILL.md",
-        "skills/productivity/write-a-skill/SKILL.md"
+        "skills/productivity/grill-me",
+        "skills/engineering/grill-with-docs",
+        "skills/engineering/tdd",
+        "skills/engineering/prototype",
+        "skills/engineering/zoom-out",
+        "skills/engineering/diagnose",
+        "skills/engineering/to-issues",
+        "skills/engineering/to-prd",
+        "skills/engineering/improve-codebase-architecture",
+        "skills/productivity/write-a-skill"
       ]
     }
   ],
