@@ -7,7 +7,7 @@ description: Find deepening opportunities in a codebase. Use when the user wants
 
 Surface architectural friction and propose **deepening opportunities** — refactors that turn shallow modules into deep ones. The aim is clarity, locality, leverage, maintainability, and AI-navigability.
 
-This vendored version is fully local/offline. Do NOT create or open HTML files, open browsers, use CDN assets, or require network access. Reports must be Markdown files.
+This vendored version is fully local/offline. Do NOT create HTML files, open browsers, use CDN assets, or require network access. Present the output directly in the chat session. Do NOT write .md files unless the user explicitly asks you to save the report to a file.
 
 ## Architecture Vocabulary
 
@@ -35,35 +35,8 @@ Use these terms consistently in every suggestion.
 - **The deletion test:** imagine deleting the module. If complexity vanishes, it was a pass-through. If complexity reappears across callers, it was earning its keep.
 - **Prefer real seams over hypothetical seams.** A seam is useful when behaviour genuinely varies across it or when it concentrates an important concept.
 
-## Output Location
-
-Write one Markdown architecture review under:
-
-```text
-~/.pi-markdown/architecture-reviews/
-```
-
-If the directory does not exist, create it before writing the review.
-
-Use this filename format:
-
-```text
-YYYY-MM-DDTHH-mm-ssZ--home-relative-working-directory--architecture-review.md
-```
-
-Rules:
-
-- Use the current UTC timestamp.
-- Derive `home-relative-working-directory` from the current working directory relative to `$HOME`.
-- Sanitize `home-relative-working-directory` for filenames:
-  - Remove any leading `/`, `./`, `../`, or `~` markers.
-  - Replace path separators with `-`.
-  - Replace characters unsafe for filenames with `-`.
-  - Collapse repeated `-` characters.
-  - Keep it reasonably bounded so filenames do not become excessively long.
-- Use `.md` as the extension.
-
-After writing the review, report the exact created path to the user.
+## Output
+Present the architecture review directly in the chat session using the structure defined below. Do NOT write a .md file to disk unless the user explicitly asks you to save the report.
 
 ## Process
 
@@ -79,22 +52,12 @@ Explore the codebase directly and note where you experience architectural fricti
 
 Apply the **deletion test** to anything you suspect is shallow.
 
-### 2. Write A Markdown Report
+### 2. Present the Report in Chat
 
-Write a local Markdown file to `~/.pi-markdown/architecture-reviews/` using the output-location rules above. Do NOT write HTML. Do NOT open the file in a browser or app.
+Present the report directly in the chat session using the structure below. Do NOT write a file to disk unless the user explicitly asks you to save it.
 
-Start the review with frontmatter:
 
-```md
----
-title: <Architecture review title>
-created: <UTC ISO timestamp>
-source: pi
-working_directory: <absolute working directory>
----
-```
-
-Use this structure:
+Use this structure in your chat response:
 
 ```md
 ## Summary
@@ -138,6 +101,7 @@ For each candidate include files/modules involved, problem, solution, benefits, 
 
 End the report with a **Top recommendation** section.
 
-Do NOT propose detailed interfaces yet. After the file is written, ask the user: "Which of these would you like to explore?"
+Do NOT propose detailed interfaces yet. After presenting the review, ask the user: "Which of these would you like to explore?"
 
 Stop there. This skill only produces the architecture review report and a short follow-up question.
+
