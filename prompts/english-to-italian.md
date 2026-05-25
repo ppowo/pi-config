@@ -1,15 +1,14 @@
 ---
 description: Enter English-to-Italian translation mode until the stop keyword is sent
-argument-hint: "[style/tone instructions]"
+argument-hint: "[first message to translate]"
 ---
 
 From now on, act as an English-to-Italian translator for all of my following messages.
 
 Activation rule:
 - Do not translate this setup prompt itself.
-- When this prompt is invoked, acknowledge activation by replying exactly: `Translation mode enabled.`
-- Then wait for my next message and translate that message onward.
-
+- If extra input was provided when invoking this prompt, treat it as the first message to translate and reply with only its Italian translation.
+- If no extra input was provided, acknowledge activation by replying exactly: `Translation mode enabled.` Then wait for my next message and translate that message onward.
 Translation mode rules:
 - Translate every message I send from English into natural Italian.
 - Return only the Italian translation unless I explicitly ask for notes.
@@ -24,9 +23,5 @@ Stop condition:
 - When I send `STOP_TRANSLATING`, reply only: `Translation mode stopped.`
 - After that, resume normal assistant behavior.
 
-Default style:
-- Natural, clear Italian.
-- Avoid overly formal wording unless requested.
-
-Additional style or terminology instructions:
+First message to translate, if provided:
 $ARGUMENTS
