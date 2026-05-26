@@ -9,6 +9,7 @@
     "setup-dark": "node bootstrap.mjs --dark"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-coding-agent": "latest",
     "@earendil-works/pi-tui": "latest",
     "typebox": "latest"
