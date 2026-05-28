@@ -49,6 +49,12 @@
         "skills/engineering/improve-codebase-architecture",
         "skills/productivity/write-a-skill"
       ]
+    },
+    {
+      "source": "https://github.com/cursor/plugins",
+      "skills": [
+        "cursor-team-kit/skills/thermo-nuclear-code-quality-review"
+      ]
     }
   ],
   "compaction": {
