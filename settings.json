@@ -52,9 +52,10 @@
     },
     {
       "source": "https://github.com/cursor/plugins",
-      "skills": [
-        "cursor-team-kit/skills/thermo-nuclear-code-quality-review"
-      ]
+      "skills": [],
+      "extensions": [],
+      "prompts": [],
+      "themes": []
     }
   ],
   "compaction": {
