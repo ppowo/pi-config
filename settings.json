@@ -49,13 +49,6 @@
         "skills/engineering/improve-codebase-architecture",
         "skills/productivity/write-a-skill"
       ]
-    },
-    {
-      "source": "https://github.com/cursor/plugins",
-      "skills": [],
-      "extensions": [],
-      "prompts": [],
-      "themes": []
     }
   ],
   "compaction": {
