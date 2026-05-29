@@ -26,8 +26,10 @@ Commit message requirements:
 - Choose a scope only when it is helpful and obvious.
 
 Safety requirements:
+- Treat this command as a one-shot action only: create at most one commit and one push, then stop. Do not continue auto-committing or auto-pushing later in the session unless I explicitly invoke this prompt again.
 - Do not include unrelated changes if they are clearly outside the current task.
-- If the working tree contains ambiguous or risky changes, stop and ask me before committing.
+- If the working tree contains changes that seem outside the current task but may be pre-existing completed work, stop and ask me whether those changes should be included, excluded, or left for later. Do not silently exclude them.
+- If the working tree contains ambiguous or risky changes, stop and ask me before staging, committing, or pushing.
 - If there is nothing to commit, say so and do not create an empty commit.
 - If pushing fails, explain why and what I should do next.
 
