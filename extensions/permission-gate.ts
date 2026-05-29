@@ -121,8 +121,9 @@ const normalizedPath = (path: string) => normalize(resolve(expandPath(path)));
 const pathFromCall = (call: ToolCall) => toolPath(call.input);
 const commandFromCall = (call: ToolCall) => shellCommand(call.input);
 
-const pathMentionPattern = /(?:~|\.\.?|\/)[^\s'";&|)]+/g;
-const extractPathMentions = (command: string): string[] => command.match(pathMentionPattern) ?? [];
+const pathMentionPattern = /(^|[^a-z0-9_])((?:~|\.\.?|\/)[^\s'";&|)=]+)/gi;
+const extractPathMentions = (command: string): string[] =>
+	[...command.matchAll(pathMentionPattern)].map(([, , path]) => path);
 
 const hasShortFlag = (command: string, flag: string) => {
 	const shortFlagGroups = command.matchAll(/\s-([a-z]+)/gi);
@@ -379,6 +380,9 @@ const EXAMPLES: Example[] = [
 	{ name: "sudo rm blocks", toolName: "bash", input: { command: "sudo rm foo.txt" }, decision: "block" },
 	{ name: "shell redirection asks", toolName: "bash", input: { command: "echo hi > /tmp/hi.txt" }, decision: "ask" },
 	{ name: "plain test is allowed", toolName: "bash", input: { command: "npm test" }, decision: "allow" },
+	{ name: "inline node process.env access is allowed", toolName: "bash", input: { command: "node -e \"console.log(process.env.FOO)\"" }, decision: "allow" },
+	{ name: "inline node process.env assignment is allowed", toolName: "bash", input: { command: "node -e \"process.env.FOO='fromenv'\"" }, decision: "allow" },
+	{ name: "inline node loadEnvFile with mktemp is ask (write), not credential block", toolName: "bash", input: { command: "tmp=$(mktemp); printf 'FOO=fromfile\\n' > \"$tmp\"; node -e \"process.env.FOO='fromenv'; process.loadEnvFile(process.argv[1]); console.log(process.env.FOO)\" \"$tmp\"" }, decision: "ask" },
 	{ name: "stderr redirection to dev null is allowed", toolName: "bash", input: { command: "cd /home/pun/Personal/lum && grep -r '^version' Cargo.toml xtask/Cargo.toml 2>/dev/null" }, decision: "allow" },
 	{ name: "npm install asks", toolName: "bash", input: { command: "npm install" }, decision: "ask" },
 	{ name: "plain curl is allowed", toolName: "bash", input: { command: "curl https://example.com" }, decision: "allow" },
