@@ -34,8 +34,8 @@
     "npm:@dustydonkey/pi-spinner",
     "https://github.com/coctostan/pi-hashline-readmap",
     "https://github.com/coctostan/pi-web-tools",
+    "https://github.com/ppowo/pi-crof",
     "npm:pi-system-reminders",
-    "npm:pi-crof",
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [
