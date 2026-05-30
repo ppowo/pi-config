@@ -35,6 +35,7 @@
     "https://github.com/coctostan/pi-hashline-readmap",
     "https://github.com/coctostan/pi-web-tools",
     "npm:pi-system-reminders",
+    "npm:pi-crof",
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [
