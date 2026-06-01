@@ -3,7 +3,8 @@
   "npmCommand": [
     "npm",
     "--ignore-scripts=false",
-    "--legacy-peer-deps"
+    "--legacy-peer-deps",
+    "--dangerously-allow-all-scripts"
   ],
   "packages": [
     {
