@@ -2,14 +2,41 @@
   "providers": {
     "openrouter": {
       "modelOverrides": {
-        "deepseek/deepseek-v4-pro": {
+        "deepseek/deepseek-v4-flash": {
+          "compat": {
+            "supportsDeveloperRole": false,
+            "requiresReasoningContentOnAssistantMessages": true
+          },
           "thinkingLevelMap": {
+            "minimal": null,
+            "low": null,
+            "medium": null,
             "high": "high",
             "xhigh": "xhigh"
           }
         },
-        "deepseek/deepseek-v4-flash": {
+        "deepseek/deepseek-v4-flash:free": {
+          "compat": {
+            "supportsDeveloperRole": false,
+            "requiresReasoningContentOnAssistantMessages": true
+          },
           "thinkingLevelMap": {
+            "minimal": null,
+            "low": null,
+            "medium": null,
+            "high": "high",
+            "xhigh": "xhigh"
+          }
+        },
+        "deepseek/deepseek-v4-pro": {
+          "compat": {
+            "supportsDeveloperRole": false,
+            "requiresReasoningContentOnAssistantMessages": true
+          },
+          "thinkingLevelMap": {
+            "minimal": null,
+            "low": null,
+            "medium": null,
             "high": "high",
             "xhigh": "xhigh"
           }
