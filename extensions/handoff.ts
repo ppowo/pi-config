@@ -14,11 +14,10 @@ import { readFileSync } from "fs";
 // ─── types ───────────────────────────────────────────────────────────────────
 
 type NormalizedBlock =
-	| { kind: "user"; text: string; sourceIndex?: number }
-	| { kind: "assistant"; text: string; sourceIndex?: number }
-	| { kind: "tool_call"; name: string; args: Record<string, unknown>; sourceIndex?: number }
-	| { kind: "tool_result"; name: string; text: string; isError: boolean; sourceIndex?: number }
-	| { kind: "thinking"; text: string; redacted: boolean; sourceIndex?: number };
+	| { kind: "user"; text: string }
+	| { kind: "assistant"; text: string }
+	| { kind: "tool_call"; name: string; args: Record<string, unknown> }
+	| { kind: "tool_result"; name: string; text: string; isError: boolean };
 
 interface SectionData {
 	sessionGoal: string[];
@@ -93,19 +92,19 @@ const redact = (text: string): string =>
 
 // ─── normalize ───────────────────────────────────────────────────────────────
 
-const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
+const normalizeOne = (msg: Message): NormalizedBlock[] => {
 	if (msg.role === "user") {
 		const blocks: NormalizedBlock[] = [];
 		const text = sanitize(textOf(msg.content));
-		if (text) blocks.push({ kind: "user", text, sourceIndex: msgIndex });
+		if (text) blocks.push({ kind: "user", text });
 		if (msg.content && typeof msg.content !== "string") {
 			for (const part of msg.content) {
 				if (part.type === "image") {
-					blocks.push({ kind: "user", text: `[image: ${part.mimeType}]`, sourceIndex: msgIndex });
+					blocks.push({ kind: "user", text: `[image: ${part.mimeType}]` });
 				}
 			}
 		}
-		return blocks.length > 0 ? blocks : [{ kind: "user", text: "", sourceIndex: msgIndex }];
+		return blocks;
 	}
 
 	if (msg.role === "toolResult") {
@@ -114,33 +113,24 @@ const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
 			name: msg.toolName,
 			text: sanitize(textOf(msg.content)),
 			isError: msg.isError,
-			sourceIndex: msgIndex,
 		}];
 	}
 
 	if (msg.role === "assistant") {
 		if (!msg.content) return [];
 		if (typeof msg.content === "string") {
-			return [{ kind: "assistant", text: sanitize(msg.content), sourceIndex: msgIndex }];
+			return [{ kind: "assistant", text: sanitize(msg.content) }];
 		}
 
 		const blocks: NormalizedBlock[] = [];
 		for (const part of msg.content) {
 			if (part.type === "text") {
-				blocks.push({ kind: "assistant", text: sanitize(part.text), sourceIndex: msgIndex });
-			} else if (part.type === "thinking") {
-				blocks.push({
-					kind: "thinking",
-					text: sanitize(part.thinking),
-					redacted: part.redacted ?? false,
-					sourceIndex: msgIndex,
-				});
+				blocks.push({ kind: "assistant", text: sanitize(part.text) });
 			} else if (part.type === "toolCall") {
 				blocks.push({
 					kind: "tool_call",
 					name: part.name,
 					args: part.arguments,
-					sourceIndex: msgIndex,
 				});
 			}
 		}
@@ -151,7 +141,7 @@ const normalizeOne = (msg: Message, msgIndex: number): NormalizedBlock[] => {
 };
 
 const normalize = (messages: Message[]): NormalizedBlock[] =>
-	messages.flatMap((msg, i) => normalizeOne(msg, i));
+	messages.flatMap(normalizeOne);
 
 // ─── filter noise ────────────────────────────────────────────────────────────
 
@@ -180,14 +170,13 @@ const cleanUserText = (text: string): string =>
 const filterNoise = (blocks: NormalizedBlock[]): NormalizedBlock[] => {
 	const out: NormalizedBlock[] = [];
 	for (const block of blocks) {
-		if (block.kind === "thinking") continue;
 		if (block.kind === "tool_call" && NOISE_TOOLS.has(block.name)) continue;
 		if (block.kind === "tool_result" && NOISE_TOOLS.has(block.name)) continue;
 		if (block.kind === "user") {
 			if (isNoiseUserBlock(block.text)) continue;
 			const cleaned = cleanUserText(block.text);
 			if (!cleaned) continue;
-			out.push({ kind: "user", text: cleaned, sourceIndex: block.sourceIndex });
+			out.push({ kind: "user", text: cleaned });
 			continue;
 		}
 		out.push(block);
