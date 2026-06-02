@@ -7,7 +7,7 @@
     "setup": "node bootstrap.mjs",
     "setup-light": "node bootstrap.mjs --light",
     "setup-dark": "node bootstrap.mjs --dark",
-    "test": "tsx --test tests/handoff.test.ts"
+    "test": "PERMISSION_GATE_SELF_TEST=1 node extensions/permission-gate.ts && tsx --test tests/*.test.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "latest",

@@ -209,6 +209,11 @@ const isDestructiveGit = (command: string) =>
 	/\bgit\s+restore\b[^\n]*\s\.(?:\s|$)/i.test(command) ||
 	/\bgit\s+push\b[^\n]*(\s--force(?:-with-lease)?\b|\s-f\b)/i.test(command);
 
+const hasNoVerify = (command: string) =>
+	/--no-verify\b/.test(command);
+
+const invokesGit = (command: string) =>
+	/(^|[\s;|&])git(?:\s|$)/i.test(command);
 // npx/bunx are intentionally NOT included (benign script runners).
 const isMutatingPackageManager = (command: string) =>
 	/\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|remove|rm|uninstall|update|upgrade|audit\s+fix|exec|dlx)\b/i.test(command);
@@ -303,6 +308,18 @@ const rules: Rule[] = [
 		matches: (call) => SHELL_TOOLS.has(call.toolName) && hasSudo(commandFromCall(call)),
 	},
 
+	// Block --no-verify on any git command. Hooks exist for a reason and the
+	// agent should never silently bypass them.
+	{
+		id: "block.no-verify",
+		decision: "block",
+		description: "git command uses --no-verify to bypass hooks",
+		guidance:
+			"BLOCKED: --no-verify is not allowed. Git hooks exist for a reason. " +
+			"Do not attempt to bypass them. Instead: fix the underlying issue that " +
+			"is causing the hook to fail, or ask the user for help.",
+		matches: (call) => SHELL_TOOLS.has(call.toolName) && invokesGit(commandFromCall(call)) && hasNoVerify(commandFromCall(call)),
+	},
 	// Ask before discarding local work or rewriting remote history.
 	{
 		id: "ask.git-destructive",
@@ -441,7 +458,10 @@ const EXAMPLES: Example[] = [
 	{ name: "git commit message mentioning .env is allowed", toolName: "bash", input: { command: "git commit -m \"feat(builder): retain latest WildFly MTO4 output\" -m \"Also load local .env configuration before CLI environment detection.\"" }, decision: "allow" },
 	{ name: "git commit message command substitution reading .env is allowed", toolName: "bash", input: { command: "git commit -m \"$(cat .env)\"" }, decision: "allow" },
 
-	// --- block wins over ask ---
+	// --- blocked: git --no-verify ---
+	{ name: "git commit --no-verify is blocked", toolName: "bash", input: { command: "git commit --no-verify -m 'wip'" }, decision: "block" },
+	{ name: "git push --no-verify is blocked", toolName: "bash", input: { command: "git push --no-verify" }, decision: "block" },
+	{ name: "non-git --no-verify is allowed", toolName: "bash", input: { command: "echo --no-verify" }, decision: "allow" },
 	{ name: "sudo rm blocks even though rm alone would ask", toolName: "bash", input: { command: "sudo rm /tmp/foo.txt" }, decision: "block" },
 ];
 
