@@ -9,6 +9,7 @@
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { readFileSync } from "fs";
+import { isSyntheticHandoffPrompt } from "./prompt";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -560,18 +561,6 @@ export const compileData = (messages: Message[]): SectionData => {
 	return buildSections(blocks);
 };
 
-
-export const HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the session lineage below.";
-const LEGACY_HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the parent session below.";
-
-const isSyntheticHandoffPrompt = (text: string): boolean => {
-	const trimmed = text.trim();
-	const hasKnownPrefix = trimmed.startsWith(HANDOFF_PROMPT_PREFIX)
-		|| trimmed.startsWith(LEGACY_HANDOFF_PROMPT_PREFIX);
-	if (!hasKnownPrefix) return false;
-	if (!trimmed.includes("**Goal:**")) return false;
-	return trimmed.includes("**Parent session:**") || trimmed.includes("**Session lineage refs:**");
-};
 
 // Important: exclude synthetic /handoff user prompts before re-summarizing a session.
 // Those prompts already contain prior summaries/lineage refs, so keeping them would

@@ -4,7 +4,8 @@ import { describe, it } from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compileData, formatSummary, loadSessionMessages, stripSyntheticHandoffMessages } from "../extensions/handoff/core";
-import { collectSessionLineage, formatSessionLineage } from "../extensions/handoff/session-lineage";
+import { buildHandoffPrompt, formatSessionLineage } from "../extensions/handoff/prompt";
+import { collectSessionLineage } from "../extensions/handoff/session-lineage";
 
 const user = (content: string) => ({ role: "user", content }) as any;
 const assistantText = (content: string) => ({ role: "assistant", content }) as any;
@@ -75,6 +76,25 @@ describe("handoff core extraction", () => {
     assert.match(summary, /\[Session Goal\]/);
     assert.match(summary, /\[Commits\]/);
     assert.match(summary, /Please keep answers concise/);
+  });
+
+
+  // Purpose: keeps generated-prompt invariants behind one interface so index.ts
+  // does not need to know prompt section ordering or lineage formatting details.
+  it("builds handoff prompts from lineage refs", () => {
+    const prompt = buildHandoffPrompt("Continue", "/tmp/parent.jsonl", "[Session Goal]\n- Continue", [{ relation: "Parent", sessionFile: "/tmp/parent.jsonl", data: {
+      sessionGoal: ["Continue"],
+      filesAndChanges: [],
+      commits: [],
+      briefTranscript: [],
+      outstandingContext: [],
+      userPreferences: [],
+    } }]);
+
+    assert.match(prompt, /session lineage below/);
+    assert.match(prompt, /\*\*Parent session summary:\*\*/);
+    assert.match(prompt, /1\. Parent:/);
+    assert.match(prompt, /Do not query every session/);
   });
 
   // Purpose: verifies the real session JSONL loader skips headers and malformed

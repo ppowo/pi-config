@@ -21,23 +21,20 @@
  *   restores that model/thinking level when possible, sends the generated prompt
  *   as the first user message, then clears the slot.
  *
- * Pi command/session wiring lives here. Deterministic extraction/formatting lives
- * in ./core; ancestor-chain loading/formatting lives in ./session-lineage so both
- * can be tested without loading the extension command.
+ * Pi command/session wiring lives here; deterministic extraction lives in ./core;
+ * generated prompt invariants live in ./prompt; ancestor-chain loading lives in
+ * ./session-lineage so each interface can be tested without loading the command.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	compileData,
 	formatSummary,
-	HANDOFF_PROMPT_PREFIX,
 	loadSessionMessages,
 	redact,
-} from "./core";
-import {
-	collectSessionLineage,
-	formatSessionLineage,
-} from "./session-lineage";
+	} from "./core";
+import { buildHandoffPrompt } from "./prompt";
+import { collectSessionLineage } from "./session-lineage";
 import type { SectionData } from "./core";
 
 const HANDOFF_GLOBAL_KEY = Symbol.for("pi-config-handoff-pending");
@@ -72,16 +69,6 @@ function setPendingHandoff(data: PendingHandoff) {
 	}
 }
 
-function buildHandoffPrompt(goal: string, parentSession: string, summary: string, lineageSection: string): string {
-	return [
-		HANDOFF_PROMPT_PREFIX,
-		`**Goal:** ${goal}`,
-		`**Parent session summary:**\n${summary}`,
-		`**Parent session:** \`${parentSession}\``,
-		lineageSection,
-		"Continue from the visible handoff summary. If an exact fact is missing, use `session_query` with the relevant listed session path. Do not query every session by default.",
-	].filter(Boolean).join("\n\n");
-}
 
 async function restoreHandoffState(
 	pi: ExtensionAPI,
@@ -149,10 +136,10 @@ export default function (pi: ExtensionAPI) {
 				if (compiled) summary = compiled;
 			} catch {}
 
-			const lineageSection = formatSessionLineage(collectSessionLineage(parentSession, parentData));
+			const lineageRefs = collectSessionLineage(parentSession, parentData);
 
 			setPendingHandoff({
-				prompt: buildHandoffPrompt(goal, parentSession, summary, lineageSection),
+				prompt: buildHandoffPrompt(goal, parentSession, summary, lineageRefs),
 				provider: currentModel.provider,
 				modelId: currentModel.id,
 				thinkingLevel: currentThinkingLevel,
