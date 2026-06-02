@@ -6,20 +6,19 @@
  * that can be queried with session_query only when exact details are needed.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { readFileSync } from "fs";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
-type NormalizedBlock =
+export type NormalizedBlock =
 	| { kind: "user"; text: string }
 	| { kind: "assistant"; text: string }
 	| { kind: "tool_call"; name: string; args: Record<string, unknown> }
 	| { kind: "tool_result"; name: string; text: string; isError: boolean };
 
-interface SectionData {
+export interface SectionData {
 	sessionGoal: string[];
 	filesAndChanges: string[];
 	commits: string[];
@@ -28,10 +27,6 @@ interface SectionData {
 	userPreferences: string[];
 }
 
-interface SessionHeader {
-	type?: string;
-	parentSession?: string;
-}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,7 +81,7 @@ const extractPath = (args: Record<string, unknown>): string | null => {
 const SENSITIVE_RE =
 	/(?:sshpass\s+-p\s*'[^']*'|sshpass\s+-p\s*"[^"]*"|sshpass\s+-p\s*\S+|password[=:]\s*\S+|api[_-]?key[=:]\s*\S+|secret[=:]\s*\S+|token[=:]\s*[A-Za-z0-9_\-\.]{8,}|-i\s+\S+\.pem\b)/gi;
 
-const redact = (text: string): string =>
+export const redact = (text: string): string =>
 	text.replace(SENSITIVE_RE, (match) => `${match.split(/[=:\s]+/)[0]} [REDACTED]`);
 
 
@@ -341,9 +336,13 @@ const extractCommits = (blocks: NormalizedBlock[]): string[] => {
 			continue;
 		}
 
-		// Only trust git-log-shaped output from a git log tool call. Assistant/user
-		// summaries and unrelated tool output can contain commit-ish anchors or bullets.
-		if (block.kind !== "tool_result" || !isGitLogToolCall(previousToolCall)) continue;
+		// Only trust git-log-shaped output from an immediately preceding git log tool
+		// call. Assistant/user text between the call and result breaks the association.
+		if (block.kind !== "tool_result") {
+			previousToolCall = undefined;
+			continue;
+		}
+		if (!isGitLogToolCall(previousToolCall)) continue;
 		for (const match of block.text.matchAll(GIT_LOG_COMMIT_RE)) {
 			const hash = match[1].slice(0, 7);
 			const subject = match[2].trim();
@@ -545,7 +544,7 @@ const section = (title: string, items: string[]): string => {
 	return `[${title}]\n${body}`;
 };
 
-const formatSummary = (data: SectionData): string => [
+export const formatSummary = (data: SectionData): string => [
 	section("Session Goal", data.sessionGoal),
 	section("Files And Changes", data.filesAndChanges),
 	section("Commits", data.commits),
@@ -554,24 +553,15 @@ const formatSummary = (data: SectionData): string => [
 	section("User Preferences", data.userPreferences),
 ].filter(Boolean).join("\n\n");
 
-const compactLine = (text: string, max = 180): string => {
-	const flat = text.replace(/\s+/g, " ").trim();
-	if (flat.length <= max) return flat;
-	return `${flat.slice(0, max - 1).trimEnd()}…`;
-};
-
-const compactItems = (items: string[], maxItems = 2, maxChars = 180): string =>
-	items.slice(0, maxItems).map((item) => compactLine(item, maxChars)).join("; ");
-
 // ─── compile ─────────────────────────────────────────────────────────────────
 
-const compileData = (messages: Message[]): SectionData => {
+export const compileData = (messages: Message[]): SectionData => {
 	const blocks = filterNoise(normalize(messages));
 	return buildSections(blocks);
 };
 
 
-const HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the session lineage below.";
+export const HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the session lineage below.";
 const LEGACY_HANDOFF_PROMPT_PREFIX = "/skill:session-query Continue this task from the parent session below.";
 
 const isSyntheticHandoffPrompt = (text: string): boolean => {
@@ -586,268 +576,24 @@ const isSyntheticHandoffPrompt = (text: string): boolean => {
 // Important: exclude synthetic /handoff user prompts before re-summarizing a session.
 // Those prompts already contain prior summaries/lineage refs, so keeping them would
 // recursively summarize older summaries and gradually bloat/degrade handoff context.
-const stripSyntheticHandoffMessages = (messages: Message[]): Message[] =>
+export const stripSyntheticHandoffMessages = (messages: Message[]): Message[] =>
 	messages.filter((msg) => msg.role !== "user" || !isSyntheticHandoffPrompt(textOf(msg.content)));
 
 // ─── session JSONL reader ────────────────────────────────────────────────────
 
-const loadSessionHeader = (sessionFile: string): SessionHeader => {
-	const content = readFileSync(sessionFile, "utf-8");
-	for (const line of content.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const entry = JSON.parse(line);
-			return entry?.type === "session" ? entry : {};
-		} catch {
-			return {};
-		}
-	}
-	return {};
-};
-
-const loadSessionMessages = (sessionFile: string): Message[] => {
+export const loadSessionMessages = (sessionFile: string): Message[] => {
 	const content = readFileSync(sessionFile, "utf-8");
 	const rawMessages: any[] = [];
 	for (const line of content.split("\n")) {
 		if (!line.trim()) continue;
 		try {
 			const entry = JSON.parse(line);
-			if (entry.type === "message" && entry.message) rawMessages.push(entry.message);
+			if (entry.type === "message" && entry.message) {
+				rawMessages.push(entry.message);
+			} else if (typeof entry.role === "string") {
+				rawMessages.push(entry);
+			}
 		} catch {}
 	}
 	return stripSyntheticHandoffMessages(convertToLlm(rawMessages));
 };
-
-// ─── lineage refs ────────────────────────────────────────────────────────────
-
-type LineageRef = {
-	relation: string;
-	sessionFile: string;
-	data?: SectionData;
-	error?: string;
-};
-
-const MAX_LINEAGE_SESSIONS = 6; // parent + up to 5 older ancestors
-const MAX_LINEAGE_SECTION_CHARS = 2500;
-
-const relationName = (index: number): string => {
-	if (index === 0) return "Parent";
-	if (index === 1) return "Grandparent";
-	return `Ancestor ${index + 1}`;
-};
-
-const errorText = (err: unknown): string => err instanceof Error ? err.message : String(err);
-
-const collectSessionLineage = (parentSession: string, parentData: SectionData): LineageRef[] => {
-	const refs: LineageRef[] = [];
-	const seen = new Set<string>();
-	let sessionFile: string | undefined = parentSession;
-
-	for (let index = 0; sessionFile && index < MAX_LINEAGE_SESSIONS; index++) {
-		if (seen.has(sessionFile)) break;
-		seen.add(sessionFile);
-
-		let data: SectionData | undefined = index === 0 ? parentData : undefined;
-		let error: string | undefined;
-		let nextSession: string | undefined;
-
-		try {
-			if (!data) {
-				const messages = loadSessionMessages(sessionFile);
-				data = compileData(messages);
-			}
-			const header = loadSessionHeader(sessionFile);
-			nextSession = typeof header.parentSession === "string" ? header.parentSession : undefined;
-		} catch (err) {
-			error = errorText(err);
-		}
-
-		refs.push({ relation: relationName(index), sessionFile, data, error });
-		sessionFile = nextSession;
-	}
-
-	return refs;
-};
-
-const formatLineageRef = (ref: LineageRef, index: number): string => {
-	const lines = [`${index + 1}. ${ref.relation}: \`${ref.sessionFile}\``];
-	if (index === 0) {
-		lines.push("   - Summary: see Parent session summary above.");
-		lines.push("   - Query if: exact details from the immediate previous session are required.");
-		return lines.join("\n");
-	}
-	if (ref.error) {
-		lines.push(`   - Summary unavailable: ${compactLine(ref.error, 140)}`);
-		lines.push("   - Query if: you specifically need this session and the file is available.");
-		return lines.join("\n");
-	}
-
-	const data = ref.data;
-	if (!data) {
-		lines.push("   - Summary unavailable.");
-		lines.push("   - Query if: you specifically need exact details from this earlier session.");
-		return lines.join("\n");
-	}
-
-	const goal = compactItems(data.sessionGoal, 2, 170);
-	const files = compactItems(data.filesAndChanges, 2, 170);
-	const outstanding = compactItems(data.outstandingContext, 1, 170);
-	const prefs = compactItems(data.userPreferences, 1, 170);
-
-	if (goal) lines.push(`   - Goal: ${goal}`);
-	if (files) lines.push(`   - Files: ${files}`);
-	if (outstanding) lines.push(`   - Outstanding: ${outstanding}`);
-	if (prefs) lines.push(`   - Preference: ${prefs}`);
-	if (!goal && !files && !outstanding && !prefs) lines.push("   - Summary: no high-signal deterministic summary extracted.");
-	lines.push("   - Query if: this card matches a specific missing fact you need.");
-	return lines.join("\n");
-};
-
-const formatSessionLineage = (refs: LineageRef[]): string => {
-	if (refs.length === 0) return "";
-	const intro = [
-		"**Session lineage refs:**",
-		"Use visible summaries first. Do not query every session. Use `session_query` only for a specific missing fact, choosing the listed session whose ref card matches the need.",
-	].join("\n");
-
-	const rendered: string[] = [];
-	let chars = intro.length;
-	for (const [index, ref] of refs.entries()) {
-		const card = formatLineageRef(ref, index);
-		if (rendered.length > 0 && chars + card.length + 2 > MAX_LINEAGE_SECTION_CHARS) {
-			rendered.push(`… ${refs.length - rendered.length} older session ref(s) omitted to keep the handoff bounded.`);
-			break;
-		}
-		rendered.push(card);
-		chars += card.length + 2;
-	}
-
-	return [intro, ...rendered].join("\n\n");
-};
-
-// ─── handoff ─────────────────────────────────────────────────────────────────
-
-const HANDOFF_GLOBAL_KEY = Symbol.for("pi-config-handoff-pending");
-
-const EMPTY_SECTION_DATA: SectionData = {
-	sessionGoal: [],
-	filesAndChanges: [],
-	commits: [],
-	briefTranscript: [],
-	outstandingContext: [],
-	userPreferences: [],
-};
-
-type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
-
-type PendingHandoff = {
-	prompt: string;
-	provider: string;
-	modelId: string;
-	thinkingLevel: ThinkingLevel;
-} | null;
-
-function getPendingHandoff(): PendingHandoff {
-	return (globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY] ?? null;
-}
-
-function setPendingHandoff(data: PendingHandoff) {
-	if (data) {
-		(globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY] = data;
-	} else {
-		delete (globalThis as Record<symbol, PendingHandoff | undefined>)[HANDOFF_GLOBAL_KEY];
-	}
-}
-
-function buildHandoffPrompt(goal: string, parentSession: string, summary: string, lineageSection: string): string {
-	return [
-		HANDOFF_PROMPT_PREFIX,
-		`**Goal:** ${goal}`,
-		`**Parent session summary:**\n${summary}`,
-		`**Parent session:** \`${parentSession}\``,
-		lineageSection,
-		"Continue from the visible handoff summary. If an exact fact is missing, use `session_query` with the relevant listed session path. Do not query every session by default.",
-	].filter(Boolean).join("\n\n");
-}
-
-async function restoreHandoffState(
-	pi: ExtensionAPI,
-	ctx: ExtensionContext,
-	pending: Exclude<PendingHandoff, null>,
-) {
-	const model = ctx.modelRegistry.find(pending.provider, pending.modelId);
-	if (!model) {
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				`Handoff: could not restore ${pending.provider}/${pending.modelId}; using current session model`,
-				"warning",
-			);
-		}
-	} else {
-		const ok = await pi.setModel(model);
-		if (!ok && ctx.hasUI) {
-			ctx.ui.notify(
-				`Handoff: no API key for ${pending.provider}/${pending.modelId}; using current session model`,
-				"warning",
-			);
-		}
-	}
-	pi.setThinkingLevel(pending.thinkingLevel);
-}
-
-export default function (pi: ExtensionAPI) {
-	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		const pending = getPendingHandoff();
-		if (!pending) return;
-
-		setPendingHandoff(null);
-		await restoreHandoffState(pi, ctx, pending);
-		pi.sendUserMessage(pending.prompt);
-	});
-
-	pi.registerCommand("handoff", {
-		description: "Start a new session with a deterministic summary + bounded session lineage refs",
-		handler: async (args, ctx: ExtensionCommandContext) => {
-			const goal = args.trim();
-			if (!goal) {
-				ctx.ui.notify("Usage: /handoff <goal>", "error");
-				return;
-			}
-
-			const parentSession = ctx.sessionManager.getSessionFile();
-			if (!parentSession) {
-				ctx.ui.notify("Handoff needs a saved parent session.", "error");
-				return;
-			}
-
-			const currentModel = ctx.model;
-			if (!currentModel) {
-				ctx.ui.notify("Handoff requires an active model.", "error");
-				return;
-			}
-			const currentThinkingLevel = pi.getThinkingLevel();
-
-			let parentData: SectionData = EMPTY_SECTION_DATA;
-			let summary = "(no summary available)";
-			try {
-				const messages = loadSessionMessages(parentSession);
-				parentData = messages.length > 0 ? compileData(messages) : EMPTY_SECTION_DATA;
-				const compiled = redact(formatSummary(parentData)).trim();
-				if (compiled) summary = compiled;
-			} catch {}
-
-			const lineageSection = formatSessionLineage(collectSessionLineage(parentSession, parentData));
-
-			setPendingHandoff({
-				prompt: buildHandoffPrompt(goal, parentSession, summary, lineageSection),
-				provider: currentModel.provider,
-				modelId: currentModel.id,
-				thinkingLevel: currentThinkingLevel,
-			});
-			const result = await ctx.newSession({ parentSession });
-			if (result.cancelled) {
-				setPendingHandoff(null);
-			}
-		},
-	});
-}

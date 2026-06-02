@@ -6,12 +6,14 @@
   "scripts": {
     "setup": "node bootstrap.mjs",
     "setup-light": "node bootstrap.mjs --light",
-    "setup-dark": "node bootstrap.mjs --dark"
+    "setup-dark": "node bootstrap.mjs --dark",
+    "test": "tsx --test tests/handoff.test.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-coding-agent": "latest",
     "@earendil-works/pi-tui": "latest",
+    "tsx": "latest",
     "typebox": "latest"
   }
 }
