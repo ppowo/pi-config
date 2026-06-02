@@ -1,0 +1,8 @@
+{
+  "compaction": "manual",
+  "compactionEngine": "blackhole",
+  "tailBehavior": "minimal",
+  "memory": false,
+  "debug": false,
+  "debugLog": false
+}

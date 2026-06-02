@@ -7,17 +7,7 @@
     "--dangerously-allow-all-scripts"
   ],
   "packages": [
-    {
-      "source": "npm:pi-amplike",
-      "extensions": [
-        "extensions/session-query.ts"
-      ],
-      "skills": [
-        "skills/session-query/SKILL.md"
-      ],
-      "prompts": [],
-      "themes": []
-    },
+    "npm:pi-blackhole",
     {
       "source": "npm:@aliou/pi-synthetic",
       "extensions": [
