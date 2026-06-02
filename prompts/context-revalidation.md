@@ -1,9 +1,9 @@
 ---
-description: Revalidate accumulated context after switching models or compacting with blackhole
+description: Revalidate accumulated context after switching models or starting a fresh handoff
 argument-hint: "[specific concern or focus]"
 ---
 
-I just switched models or compacted context with /blackhole, so you are seeing accumulated context through a compressed/current view.
+I just switched models and started a new session, so you are seeing the accumulated context as a fresh handoff.
 
 You are now the lead agent taking over from the prior model. The previous work is mostly trusted, but not authoritative. Do not rubber-stamp it.
 

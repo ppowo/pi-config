@@ -31,8 +31,6 @@ const HASHLINE_READMAP_OVERLAY = join(REPO_DIR, "hashline-readmap-settings.json"
 const PI_HASHLINE_READMAP_SETTINGS = join(PI_DIR, "hashline-readmap", "settings.json");
 const QUOTAS_OVERLAY = join(REPO_DIR, "quotas.json");
 const PI_QUOTAS = join(PI_EXTENSIONS_DIR, "quotas.json");
-const BLACKHOLE_CONFIG_OVERLAY = join(REPO_DIR, "pi-blackhole-config.json");
-const PI_BLACKHOLE_CONFIG = join(PI_DIR, "pi-blackhole", "pi-blackhole-config.json");
 const RESETTABLE_PI_PATHS = [
   // Fully managed by this repo.
   ...links.map(({link}) => link),
@@ -184,7 +182,6 @@ async function main() {
   await syncDirectoryLinks(THEMES_DIR, PI_THEMES_DIR);
 
   await installJsonConfig(QUOTAS_OVERLAY, PI_QUOTAS, "pi-quotas settings");
-  await installJsonConfig(BLACKHOLE_CONFIG_OVERLAY, PI_BLACKHOLE_CONFIG, "pi-blackhole settings");
   await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
   await installJsonConfig(VERBOSITY_OVERLAY, PI_VERBOSITY, "pi verbosity");
   await installJsonConfig(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, "pi web-tools");
