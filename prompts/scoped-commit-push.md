@@ -43,5 +43,5 @@ Safety requirements:
 - If there is nothing to commit, say so and do not create an empty commit.
 - If pushing fails, explain why and what I should do next.
 
-Extra instructions from me:
+Extra instructions from me, if provided:
 $ARGUMENTS
