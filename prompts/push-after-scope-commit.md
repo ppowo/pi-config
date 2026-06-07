@@ -1,5 +1,5 @@
 ---
-description: Inspect current work only as needed, create a scoped commit, and push the current branch
+description: Push the current branch after creating a scoped commit
 argument-hint: "[extra instructions]"
 ---
 
