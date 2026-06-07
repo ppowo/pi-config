@@ -8,24 +8,41 @@ It keeps prompts/extensions/skills/themes/reminders plus repo-managed pi config 
 - **Node.js** ≥ 22.19.0 — see [Installing Node.js](#installing-nodejs)
 - **pi** — see [Installing pi](#installing-pi)
 
-### Tooling
+### Extra command-line tools
 
-This config assumes a few CLI tools are available on `PATH` for the agent and its extensions to use:
+This pi config enables [`pi-hashline-readmap`](https://github.com/coctostan/pi-hashline-readmap). That extension can use several external command-line tools for faster searches, richer structural maps, semantic diffs, and better command-output summaries.
 
-- `difft` (`difftastic`)
-- `fd`
-- `jq`
-- `rg` (`ripgrep`)
-- `scc`
-- `shellcheck`
-- `ctags` (`universal-ctags`)
-- `yq`
+This repo does **not** install those tools. Install them with whatever package manager makes sense for your machine.
 
-You can install these yourself, or use [`lum`](https://github.com/ppowo/lum) as a one-stop way to manage them:
+#### Tools used by `pi-hashline-readmap`
+
+| Tool/package | Binary | Used for |
+| --- | --- | --- |
+| `scc` | `scc` | Code counting and some compressed command-output paths. |
+| `universal-ctags` | `ctags` | Symbol maps for languages without a dedicated mapper. |
+| `difftastic` | `difft` | Semantic diff summaries. |
+| `fd` | `fd` | Faster file finding. |
+| `jq` | `jq` | JSON processing. |
+| `ripgrep` | `rg` | Fast text search. |
+| `shellcheck` | `shellcheck` | Shell script checks and related output summaries. |
+| `yq` | `yq` | YAML/JSON/XML/CSV processing. |
+
+#### Installation guidance
+
+Recommended: use your system package manager (`brew`, `apt`, `dnf`, `pacman`, `zypper`, etc.) and install the package names that match your OS.
+
+For example, on macOS with Homebrew:
 
 ```bash
-lum tools sync
+brew install difftastic fd jq ripgrep shellcheck yq scc universal-ctags
 ```
+
+On the author's setup, these tools are installed through two package managers:
+
+- [`mise`](https://mise.jdx.dev/) provides `difftastic`, `fd`, `jq`, `ripgrep`, `shellcheck`, and `yq`.
+- [`lum`](https://github.com/ppowo/lum) provides `scc` and `universal-ctags`.
+
+That split is only an implementation detail of this environment; users do not need to use `mise` or `lum` if their normal package manager can install the tools.
 
 ### Installing Node.js
 
@@ -34,9 +51,9 @@ lum tools sync
 brew install node
 ```
 
-Or install via [fnm](https://github.com/Schniz/fnm#installation) (recommended for managing multiple Node versions).
+Or install via [`mise`](https://mise.jdx.dev/) or [fnm](https://github.com/Schniz/fnm#installation) if you want a version manager for Node.
 
-**Linux** — install via your package manager (`apt`, `dnf`, etc.) or [fnm](https://github.com/Schniz/fnm#installation).
+**Linux** — install via your package manager (`apt`, `dnf`, etc.), [`mise`](https://mise.jdx.dev/), or [fnm](https://github.com/Schniz/fnm#installation).
 
 Verify:
 ```bash
