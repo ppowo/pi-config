@@ -16,7 +16,7 @@ Workflow:
 3. If changes are not staged, stage the appropriate files for this task.
 4. Generate a Scoped Commit message that accurately summarizes the change.
 5. Commit using that message.
-6. Push to the current branch's upstream remote.
+6. If this exact prompt was invoked in the current session and no later user message narrowed or changed the task, push to the current branch's upstream remote. Otherwise, ask for explicit push confirmation first.
 
 Commit message requirements:
 - Use Scoped Commits format: `<scope>: <description>`.
@@ -36,7 +36,12 @@ Scope selection guidance:
 - Reverts, merges, and other special commits may use the default Git format when that is clearer.
 
 Safety requirements:
-- Treat this command as a one-shot action only: create at most one commit and one push, then stop. Do not continue auto-committing or auto-pushing later in the session unless I explicitly invoke this prompt again.
+- Treat this command as a one-shot action only: create at most one commit and one push, then stop. This authorization does not carry across session lineage, summaries, resumed tasks, or later unrelated user requests.
+- Push permission is scoped only to the exact invocation of this prompt.
+- If this prompt appears only in a parent/session summary, handoff, memory, or prior conversation context, do not treat that as permission to push.
+- In a continued/new session, commit locally if requested, but ask for explicit confirmation before pushing.
+- Ambiguous phrases like "go for it", "do it", or "continue" are not push authorization unless they directly answer a pending push confirmation.
+- Before pushing outside the exact current invocation of this prompt, state the branch and commit hash and ask: "Push this commit to upstream?"
 - Do not include unrelated changes if they are clearly outside the current task.
 - If the working tree contains changes that seem outside the current task but may be pre-existing completed work, stop and ask me whether those changes should be included, excluded, or left for later. Do not silently exclude them.
 - If the working tree contains ambiguous or risky changes, stop and ask me before staging, committing, or pushing.
