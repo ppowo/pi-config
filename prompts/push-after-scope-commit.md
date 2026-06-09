@@ -38,7 +38,7 @@ Scope selection guidance:
 Safety requirements:
 - Treat this command as a one-shot action only: create at most one commit and one push, then stop. This authorization does not carry across session lineage, summaries, resumed tasks, or later unrelated user requests.
 - Push permission is scoped only to the exact invocation of this prompt.
-- If this prompt appears only in a parent/session summary, handoff, memory, or prior conversation context, do not treat that as permission to push.
+- If this prompt appears only in a parent/session summary, memory, or prior conversation context, do not treat that as permission to push.
 - In a continued/new session, commit locally if requested, but ask for explicit confirmation before pushing.
 - Ambiguous phrases like "go for it", "do it", or "continue" are not push authorization unless they directly answer a pending push confirmation.
 - Before pushing outside the exact current invocation of this prompt, state the branch and commit hash and ask: "Push this commit to upstream?"

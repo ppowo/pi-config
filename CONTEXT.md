@@ -39,11 +39,6 @@ A third-party extension installed via npm package or GitHub URL and managed by
 pi's internal package system.
 _Avoid_: External extension, remote extension.
 
-**Handoff**:
-A Local Extension flow that summarizes the current session, records parent-session
-lineage, and seeds a follow-up session with bounded `session_query` guidance.
-_Avoid_: Resume prompt, continuation blob.
-
 **Theme**:
 A JSON color palette that defines pi's TUI visual styling, with light and dark
 variants.
@@ -65,8 +60,6 @@ _Avoid_: Master copy, canonical copy.
 the appropriate variant based on OS appearance mode.
 - An **Extension** can be either a **Local Extension** (in `extensions/`) or a
 **Package Extension** (installed via npm/GitHub and tracked in `settings.json`).
-- A **Handoff** is a **Local Extension** flow; its generated prompt owns both the
-  visible summary and the rules for when to query parent-session lineage.
 - A **Package** can bring any combination of **Extensions**, **Skills**, and
 **Themes**. This repo selectively loads only the pieces it wants through `settings.json`.
 - **Overlay** merge is used for JSON config files that pi mutates at runtime

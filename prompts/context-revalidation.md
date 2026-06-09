@@ -1,9 +1,9 @@
 ---
-description: Revalidate accumulated context after switching models or starting a fresh handoff
+description: Revalidate accumulated context after switching models or compacting context
 argument-hint: "[specific concern or focus]"
 ---
 
-I just switched models and started a new session, so you are seeing the accumulated context as a fresh handoff.
+I just switched models or compacted context, so you are seeing accumulated context with fresh eyes.
 
 You are now the lead agent taking over from the prior model. The previous work is mostly trusted, but not authoritative. Do not rubber-stamp it.
 
