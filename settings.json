@@ -29,7 +29,6 @@
     },
     "npm:@pborck/pi-de",
     "npm:@latentminds/pi-quotas",
-    "https://github.com/monotykamary/pi-tool-repair",
     "https://github.com/monotykamary/pi-neuralwatt-provider",
     "https://github.com/monotykamary/pi-vcc",
     "https://github.com/monotykamary/pi-trust-defer",
