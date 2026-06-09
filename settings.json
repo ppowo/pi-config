@@ -30,7 +30,7 @@
     "npm:pi-context-zone",
     "npm:@pborck/pi-de",
     "npm:@latentminds/pi-quotas",
-    "https://github.com/aliou/pi-neuralwatt",
+    "https://github.com/monotykamary/pi-neuralwatt-provider",
     "npm:pi-verbosity-control",
     "npm:@dustydonkey/pi-spinner",
     "https://github.com/coctostan/pi-hashline-readmap",
