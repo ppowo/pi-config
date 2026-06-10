@@ -19,12 +19,11 @@ const links = [
   { link: join(PI_DIR, "reminders"), target: join(REPO_DIR, "reminders") },
   { link: join(PI_DIR, "APPEND_SYSTEM.md"), target: join(REPO_DIR, "APPEND_SYSTEM.md") },
   { link: join(PI_DIR, "models.json"), target: join(REPO_DIR, "models.json") },
+  { link: join(PI_DIR, "keybindings.json"), target: join(REPO_DIR, "keybindings.json") },
 ];
 
 const SETTINGS_OVERLAY = join(REPO_DIR, "settings.json");
 const PI_SETTINGS = join(PI_DIR, "settings.json");
-const VERBOSITY_OVERLAY = join(REPO_DIR, "verbosity.json");
-const PI_VERBOSITY = join(PI_DIR, "verbosity.json");
 const WEB_TOOLS_OVERLAY = join(REPO_DIR, "web-tools.json");
 const PI_WEB_TOOLS = join(HOME, ".pi", "web-tools.json");
 const HASHLINE_READMAP_OVERLAY = join(REPO_DIR, "hashline-readmap-settings.json");
@@ -189,7 +188,6 @@ async function main() {
   await installJsonConfig(NEURALWATT_OVERLAY, PI_NEURALWATT, "neuralwatt settings");
   await installJsonConfig(PI_VCC_CONFIG_OVERLAY, PI_VCC_CONFIG, "pi-vcc config");
   await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
-  await installJsonConfig(VERBOSITY_OVERLAY, PI_VERBOSITY, "pi verbosity");
   await installJsonConfig(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, "pi web-tools");
   await installJsonConfig(HASHLINE_READMAP_OVERLAY, PI_HASHLINE_READMAP_SETTINGS, "hashline-readmap settings");
   console.log("bootstrap complete");

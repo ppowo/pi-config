@@ -99,9 +99,9 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
   - `reminders/`
   - `APPEND_SYSTEM.md`
   - `models.json`
+  - `keybindings.json`
 - merges overlay files into:
   - `~/.pi/agent/settings.json` (from `settings.json`)
-  - `~/.pi/agent/verbosity.json` (from `verbosity.json`)
   - `~/.pi/web-tools.json` (from `web-tools.json`)
   - `~/.pi/agent/hashline-readmap/settings.json` (from `hashline-readmap-settings.json`)
 
@@ -115,8 +115,8 @@ No `npm install` needed — the bootstrap script uses only Node.js built-ins.
 - `reminders/` — global reminder definitions for `pi-system-reminders`
 - `APPEND_SYSTEM.md` — extra system prompt text appended into pi
 - `settings.json` — repo-managed pi settings overlay, including installed packages/extensions
-- `verbosity.json` — repo-managed pi-verbosity-control overlay
 - `models.json` — custom provider/model definitions symlinked into pi (for example OpenRouter via `OPENROUTER_API_KEY`)
+- `keybindings.json` — repo-managed keybinding overrides; unbinds built-in `Ctrl+P` users so `model-info-toggle` can own it
 
 The bootstrap script is plain Node.js, but pi extensions in `extensions/` can still stay TypeScript.
 Reminder files tracked in `reminders/` become global reminders via `~/.pi/agent/reminders`; project-specific reminders for some other repo should still live in that repo's `.pi/reminders/` directory.
@@ -129,4 +129,4 @@ Re-run `npm run setup` any time you change files in this repo or set up a new ma
 
 ## Note
 
-`settings.json` and `verbosity.json` are applied as repo-managed overlays. Every leaf path present there is owned by this repo. Other local pi settings are preserved, and if a repo-managed key is later removed from either file, re-running setup removes it from the corresponding file in `~/.pi/agent/` too.
+`settings.json` is applied as a repo-managed overlay. Every leaf path present there is owned by this repo. Other local pi settings are preserved, and if a repo-managed key is later removed from the file, re-running setup removes it from the target file in `~/.pi/agent/`.

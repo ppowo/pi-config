@@ -1,11 +1,14 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "context-threshold";
-const THRESHOLD_PERCENT = 40;
+const ORANGE_THRESHOLD = 40;
+const RED_THRESHOLD = 60;
 
-function render(percent: number): string | undefined {
-	if (percent <= THRESHOLD_PERCENT) return undefined;
-	return `context > ${THRESHOLD_PERCENT}%`;
+function render(percent: number, fg: (color: ThemeColor, text: string) => string): string {
+	const text = `cntx ${percent.toFixed(2)}%`;
+	if (percent > RED_THRESHOLD) return fg("error", text);
+	if (percent > ORANGE_THRESHOLD) return fg("warning", text);
+	return fg("text", text);
 }
 
 function update(ctx: ExtensionContext): void {
@@ -16,7 +19,7 @@ function update(ctx: ExtensionContext): void {
 
 	ctx.ui.setStatus(
 		STATUS_KEY,
-		typeof percent === "number" ? render(percent) : undefined,
+		typeof percent === "number" ? render(percent, (c, t) => ctx.ui.theme.fg(c, t)) : undefined,
 	);
 }
 

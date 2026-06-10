@@ -33,7 +33,6 @@
     "https://github.com/monotykamary/pi-neuralwatt-provider",
     "https://github.com/monotykamary/pi-crofai-provider",
     "https://github.com/monotykamary/pi-model-sort",
-    "npm:pi-verbosity-control",
     "npm:@dustydonkey/pi-spinner",
     "https://github.com/coctostan/pi-hashline-readmap",
     "https://github.com/coctostan/pi-web-tools",
