@@ -1,5 +1,6 @@
 {
-  "energy": "off",
-  "quota": "off",
-  "mcr": "off"
+  "energy": "statusbar",
+  "quota": "statusbar",
+  "mcr": "off",
+  "hideOnOtherProvider": true
 }
