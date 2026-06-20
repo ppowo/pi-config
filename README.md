@@ -39,7 +39,7 @@ brew install difftastic fd jq ripgrep shellcheck yq scc universal-ctags
 
 On the author's setup, these tools are installed through two package managers:
 
-- [`mise`](https://mise.jdx.dev/) provides `difftastic`, `fd`, `jq`, `ripgrep`, `shellcheck`, and `yq`.
+- [`mise`](https://mise.jdx.dev/) provides `ast-grep`, `difftastic`, `fd`, `jq`, `ripgrep`, `shellcheck`, and `yq`.
 - [`lum`](https://github.com/ppowo/lum) provides `scc` and `universal-ctags`.
 
 That split is only an implementation detail of this environment; users do not need to use `mise` or `lum` if their normal package manager can install the tools.
