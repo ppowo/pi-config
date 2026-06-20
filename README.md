@@ -26,6 +26,7 @@ This repo does **not** install those tools. Install them with whatever package m
 | `ripgrep` | `rg` | Fast text search. |
 | `shellcheck` | `shellcheck` | Shell script checks and related output summaries. |
 | `yq` | `yq` | YAML/JSON/XML/CSV processing. |
+| `ast-grep` | `ast-grep` | Structure-aware code search via `ast_search`. |
 
 #### Installation guidance
 
