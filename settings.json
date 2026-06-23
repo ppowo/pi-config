@@ -21,12 +21,12 @@
     "https://github.com/monotykamary/pi-vcc",
     "https://github.com/monotykamary/pi-neuralwatt-provider",
     "https://github.com/monotykamary/pi-crofai-provider",
+    "https://github.com/monotykamary/pi-lilac-provider",
     "https://github.com/monotykamary/pi-model-sort",
-    "npm:@dustydonkey/pi-spinner",
     "https://github.com/coctostan/pi-hashline-readmap",
     "https://github.com/coctostan/pi-web-tools",
+    "npm:@dustydonkey/pi-spinner",
     "npm:pi-system-reminders",
-    "https://github.com/monotykamary/pi-lilac-provider",
     {
       "source": "https://github.com/mattpocock/skills",
       "skills": [
