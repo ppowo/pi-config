@@ -6,6 +6,7 @@
   "scripts": {
     "setup": "node bootstrap.mjs",
     "setup-light": "node bootstrap.mjs --light",
+    "setup-light-ds4": "node bootstrap.mjs --light --ds4",
     "setup-dark": "node bootstrap.mjs --dark",
     "test": "PERMISSION_GATE_SELF_TEST=1 node extensions/permission-gate.ts && tsx --test tests/*.test.ts"
   },

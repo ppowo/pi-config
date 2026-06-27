@@ -159,6 +159,21 @@ function getThemeVariantFromArgs(args = process.argv.slice(2)) {
   return "light";
 }
 
+const DS4_MODEL_ID = "openrouter/deepseek/deepseek-v4-flash";
+
+function getDefaultModelFromArgs(args = process.argv.slice(2)) {
+  const i = args.indexOf("--default-model");
+  if (i !== -1 && args[i + 1]) {
+    return args[i + 1];
+  }
+
+  if (args.includes("--ds4")) {
+    return DS4_MODEL_ID;
+  }
+
+  return null;
+}
+
 async function switchTheme(variant = getThemeVariantFromArgs()) {
   const themeDir = PI_THEMES_DIR;
   const linkPath = join(themeDir, "github-colorblind.json");
@@ -187,7 +202,15 @@ async function main() {
   await installJsonConfig(QUOTAS_OVERLAY, PI_QUOTAS, "pi-quotas settings");
   await installJsonConfig(NEURALWATT_OVERLAY, PI_NEURALWATT, "neuralwatt settings");
   await installJsonConfig(PI_VCC_CONFIG_OVERLAY, PI_VCC_CONFIG, "pi-vcc config");
-  await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
+  const defaultModel = getDefaultModelFromArgs();
+  if (defaultModel) {
+    const settings = await readJsonFile(SETTINGS_OVERLAY);
+    settings.defaultModel = defaultModel;
+    await writeManagedJsonFile(PI_SETTINGS, settings);
+    console.log(`wrote pi settings (defaultModel=${defaultModel}) to ${PI_SETTINGS}`);
+  } else {
+    await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
+  }
   await installJsonConfig(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, "pi web-tools");
   await installJsonConfig(HASHLINE_READMAP_OVERLAY, PI_HASHLINE_READMAP_SETTINGS, "hashline-readmap settings");
   console.log("bootstrap complete");
