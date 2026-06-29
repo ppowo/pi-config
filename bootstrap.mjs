@@ -159,16 +159,20 @@ function getThemeVariantFromArgs(args = process.argv.slice(2)) {
   return "light";
 }
 
-const DS4_MODEL_ID = "openrouter/deepseek/deepseek-v4-flash";
+const DS4_DEFAULT_MODEL = {
+  provider: "openrouter",
+  modelId: "deepseek/deepseek-v4-flash",
+  thinkingLevel: "xhigh",
+};
 
 function getDefaultModelFromArgs(args = process.argv.slice(2)) {
   const i = args.indexOf("--default-model");
   if (i !== -1 && args[i + 1]) {
-    return args[i + 1];
+    return { modelId: args[i + 1] };
   }
 
   if (args.includes("--ds4")) {
-    return DS4_MODEL_ID;
+    return DS4_DEFAULT_MODEL;
   }
 
   return null;
@@ -205,9 +209,18 @@ async function main() {
   const defaultModel = getDefaultModelFromArgs();
   if (defaultModel) {
     const settings = await readJsonFile(SETTINGS_OVERLAY);
-    settings.defaultModel = defaultModel;
+    if (defaultModel.provider) {
+      settings.defaultProvider = defaultModel.provider;
+    } else {
+      delete settings.defaultProvider;
+    }
+    settings.defaultModel = defaultModel.modelId;
+    if (defaultModel.thinkingLevel) {
+      settings.defaultThinkingLevel = defaultModel.thinkingLevel;
+    }
     await writeManagedJsonFile(PI_SETTINGS, settings);
-    console.log(`wrote pi settings (defaultModel=${defaultModel}) to ${PI_SETTINGS}`);
+    const providerPrefix = defaultModel.provider ? `${defaultModel.provider}/` : "";
+    console.log(`wrote pi settings (defaultModel=${providerPrefix}${defaultModel.modelId}) to ${PI_SETTINGS}`);
   } else {
     await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
   }
