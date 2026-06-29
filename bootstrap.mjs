@@ -159,23 +159,10 @@ function getThemeVariantFromArgs(args = process.argv.slice(2)) {
   return "light";
 }
 
-const DS4_DEFAULT_MODEL = {
-  provider: "openrouter",
-  modelId: "deepseek/deepseek-v4-flash",
-  thinkingLevel: "xhigh",
-};
+const WORK_DEFAULT_MODEL_CONFIG = join(PI_EXTENSIONS_DIR, "work-default-model.json");
 
-function getDefaultModelFromArgs(args = process.argv.slice(2)) {
-  const i = args.indexOf("--default-model");
-  if (i !== -1 && args[i + 1]) {
-    return { modelId: args[i + 1] };
-  }
-
-  if (args.includes("--ds4")) {
-    return DS4_DEFAULT_MODEL;
-  }
-
-  return null;
+function shouldEnableWorkDefaultModel(args = process.argv.slice(2)) {
+  return args.includes("--ds4");
 }
 
 async function switchTheme(variant = getThemeVariantFromArgs()) {
@@ -206,23 +193,10 @@ async function main() {
   await installJsonConfig(QUOTAS_OVERLAY, PI_QUOTAS, "pi-quotas settings");
   await installJsonConfig(NEURALWATT_OVERLAY, PI_NEURALWATT, "neuralwatt settings");
   await installJsonConfig(PI_VCC_CONFIG_OVERLAY, PI_VCC_CONFIG, "pi-vcc config");
-  const defaultModel = getDefaultModelFromArgs();
-  if (defaultModel) {
-    const settings = await readJsonFile(SETTINGS_OVERLAY);
-    if (defaultModel.provider) {
-      settings.defaultProvider = defaultModel.provider;
-    } else {
-      delete settings.defaultProvider;
-    }
-    settings.defaultModel = defaultModel.modelId;
-    if (defaultModel.thinkingLevel) {
-      settings.defaultThinkingLevel = defaultModel.thinkingLevel;
-    }
-    await writeManagedJsonFile(PI_SETTINGS, settings);
-    const providerPrefix = defaultModel.provider ? `${defaultModel.provider}/` : "";
-    console.log(`wrote pi settings (defaultModel=${providerPrefix}${defaultModel.modelId}) to ${PI_SETTINGS}`);
-  } else {
-    await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
+  await installJsonConfig(SETTINGS_OVERLAY, PI_SETTINGS, "pi settings");
+  if (shouldEnableWorkDefaultModel()) {
+    await writeManagedJsonFile(WORK_DEFAULT_MODEL_CONFIG, { enabled: true });
+    console.log(`enabled work default model via ${WORK_DEFAULT_MODEL_CONFIG}`);
   }
   await installJsonConfig(WEB_TOOLS_OVERLAY, PI_WEB_TOOLS, "pi web-tools");
   await installJsonConfig(HASHLINE_READMAP_OVERLAY, PI_HASHLINE_READMAP_SETTINGS, "hashline-readmap settings");
