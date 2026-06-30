@@ -1,14 +1,14 @@
 {
   "grep": {
-    "maxLines": 100,
-    "maxBytes": 8192
+    "maxLines": 50,
+    "maxBytes": 4096
   },
   "bashContextGuard": {
     "enabled": true,
-    "maxLines": 300,
-    "maxBytes": 20480,
-    "headLines": 50,
-    "tailLines": 100
+    "maxLines": 80,
+    "maxBytes": 6144,
+    "headLines": 12,
+    "tailLines": 35
   },
   "display": {
     "previewLines": 0
