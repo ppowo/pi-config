@@ -11,19 +11,13 @@ export function render(
 	percent: number,
 	dumbZone: boolean,
 	fg: (color: ThemeColor, text: string) => string,
-): string {
-	if (dumbZone) {
-		const label = fg("accent", "dumb");
-		const pctText = `${percent.toFixed(2)}%`;
-		if (percent > RED_THRESHOLD) return `${label} ${fg("error", pctText)}`;
-		if (percent > ORANGE_THRESHOLD) return `${label} ${fg("warning", pctText)}`;
-		return `${label} ${fg("text", pctText)}`;
-	}
+): string | undefined {
+	if (!dumbZone) return undefined;
 
-	const text = `cntx ${percent.toFixed(2)}%`;
-	if (percent > RED_THRESHOLD) return fg("error", text);
-	if (percent > ORANGE_THRESHOLD) return fg("warning", text);
-	return fg("text", text);
+	const label = "dumb";
+	if (percent > RED_THRESHOLD) return fg("error", label);
+	if (percent > ORANGE_THRESHOLD) return fg("warning", label);
+	return fg("text", label);
 }
 
 function update(ctx: ExtensionContext): void {
