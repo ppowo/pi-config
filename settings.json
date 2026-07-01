@@ -18,7 +18,7 @@
     },
     "npm:@pborck/pi-de",
     "npm:@latentminds/pi-quotas",
-    "https://github.com/monotykamary/pi-vcc",
+    "https://github.com/ppowo/pi-vcc@compaction/add-compact-at-tokens",
     "https://github.com/monotykamary/pi-neuralwatt-provider",
     "https://github.com/monotykamary/pi-crofai-provider",
     "https://github.com/monotykamary/pi-lilac-provider",

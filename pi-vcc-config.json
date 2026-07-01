@@ -1,6 +1,7 @@
 {
   "overrideDefaultCompaction": true,
   "globalThreshold": {
-    "compactPercent": 70
-  }
+    "compactAtTokens": 150000
+  },
+  "debug": false
 }
