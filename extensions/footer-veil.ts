@@ -1,81 +1,39 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, type ExtensionContext, FooterComponent, InteractiveMode } from "@earendil-works/pi-coding-agent";
-import type { KeyId } from "@earendil-works/pi-tui";
+import {
+	type AgentSession,
+	type ExtensionAPI,
+	type ExtensionContext,
+	FooterComponent,
+	InteractiveMode,
+} from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-const DEFAULT_SHOW_MODEL_INFO = false;
-const TOGGLE_MODEL_INFO_SHORTCUT = "ctrl+p" as KeyId;
+
+const TOGGLE_MODEL_INFO_SHORTCUT = "ctrl+p";
 const DUMB_ZONE_TOKEN_THRESHOLD = 128_000;
 const DUMB_ZONE_LABEL = "dumb";
+const REFRESH_WIDGET_KEY = "footer-veil";
+const OPENAI_PRESENTATION_COMMAND = "openai-usage-presentation";
 
-/** Status-line keys owned by provider usage widgets; veiled while model info is hidden. */
-export const USAGE_STATUS_KEYS: ReadonlySet<string> = new Set([
-	"better-openai", // pi-better-openai STATUS_KEY (non-TUI status surface)
-	"synthetic-usage", // @aliou/pi-synthetic usage-status EXTENSION_ID
-	"opencode-go-usage", // local extensions/opencode-go-usage.ts STATUS_ID
-	"zro-session", // pi-zro-provider STATUS_KEY_SESSION
-	"zro-account", // pi-zro-provider STATUS_KEY_ACCOUNT
-	"hypercharm-session", // pi-hypercharm-provider STATUS_KEY_SESSION
-	"hypercharm-account", // pi-hypercharm-provider STATUS_KEY_ACCOUNT
-	"neuralwatt-energy", // pi-neuralwatt-provider STATUS_KEY_ENERGY (statusbar mode)
-	"neuralwatt-quota", // pi-neuralwatt-provider STATUS_KEY_QUOTA (statusbar mode)
-	"neuralwatt-mcr", // pi-neuralwatt-provider STATUS_KEY_MCR (statusbar mode)
-]);
+// Hidden mode keeps built-in footer stats and explicitly allowlisted widgets.
+// Providers remain hidden by default; their source maps are never modified.
+const NO_EXTENSION_STATUSES: ReadonlyMap<string, string> = new Map();
+const ALWAYS_VISIBLE_WIDGETS: ReadonlySet<string> = new Set(["skill-guide"]);
 
-/** Widget keys owned by provider usage widgets (below-editor status lines); veiled while model info is hidden. */
-export const USAGE_WIDGET_KEYS: ReadonlySet<string> = new Set([
-	"hypercharm", // pi-hypercharm-provider WIDGET_KEY
-	"zro", // pi-zro-provider WIDGET_KEY
-	"neuralwatt", // pi-neuralwatt-provider widget key
-]);
-
-export function filterUsageWidgets<T>(
-	widgets: ReadonlyMap<string, T>,
-	hidden: boolean,
-	keys: ReadonlySet<string> = USAGE_WIDGET_KEYS,
-): ReadonlyMap<string, T> {
-	if (!hidden) return widgets;
-	let removed = false;
-	for (const key of widgets.keys()) {
-		if (keys.has(key)) {
-			removed = true;
-			break;
-		}
-	}
-	if (!removed) return widgets;
-	const kept = new Map<string, T>();
-	for (const [key, widget] of widgets) {
-		if (!keys.has(key)) kept.set(key, widget);
-	}
-	return kept;
-}
-
-export function filterUsageStatuses(
-	statuses: ReadonlyMap<string, string>,
-	hidden: boolean,
-	keys: ReadonlySet<string> = USAGE_STATUS_KEYS,
-): ReadonlyMap<string, string> {
-	if (!hidden) return statuses;
-	let removed = false;
-	for (const key of statuses.keys()) {
-		if (keys.has(key)) {
-			removed = true;
-			break;
-		}
-	}
-	if (!removed) return statuses;
-	const kept = new Map<string, string>();
-	for (const [key, text] of statuses) {
-		if (!keys.has(key)) kept.set(key, text);
-	}
-	return kept;
-}
-
-let originalFooterRender: ((this: FooterComponent, width: number) => string[]) | undefined;
-let footerPatched = false;
-let veilShapeWarningShown = false;
-
-export interface VeilableFooterData {
+// These private Pi surfaces have no public visibility hook. Keep their shape
+// assumptions here, and cover them through the bundled-UI integration test.
+interface VeilableFooterData {
 	getExtensionStatuses(): ReadonlyMap<string, string>;
+}
+
+interface FooterDataHost {
+	footerData?: VeilableFooterData | null;
+}
+
+function asFooterData(host: unknown): VeilableFooterData | undefined {
+	if (typeof host !== "object" || host === null) return undefined;
+	const data = (host as FooterDataHost).footerData;
+	if (typeof data !== "object" || data === null) return undefined;
+	if (typeof data.getExtensionStatuses !== "function") return undefined;
+	return data;
 }
 
 export function withVeiledExtensionStatuses<T>(
@@ -84,20 +42,35 @@ export function withVeiledExtensionStatuses<T>(
 	run: () => T,
 	onShapeWarning?: () => void,
 ): T {
-	const footerData = (host as { footerData?: VeilableFooterData | null | undefined } | null | undefined)
-		?.footerData;
-	if (!hidden || !footerData || typeof footerData.getExtensionStatuses !== "function") {
+	const footerData = asFooterData(host);
+	if (!hidden || !footerData) {
 		if (hidden) onShapeWarning?.();
 		return run();
 	}
-	const data: VeilableFooterData = footerData;
-	const original = data.getExtensionStatuses;
-	data.getExtensionStatuses = () => filterUsageStatuses(original.call(data), true);
+	const original = footerData.getExtensionStatuses;
+	footerData.getExtensionStatuses = () => NO_EXTENSION_STATUSES;
 	try {
 		return run();
 	} finally {
-		data.getExtensionStatuses = original;
+		footerData.getExtensionStatuses = original;
 	}
+}
+
+interface WidgetContainer {
+	clear(): void;
+	addChild(child: unknown): void;
+}
+
+type RenderWidgetContainerFn = (
+	this: InteractiveMode,
+	container: WidgetContainer,
+	widgets: ReadonlyMap<string, unknown>,
+	spacerWhenEmpty: boolean,
+	leadingSpacer: boolean,
+) => void;
+
+interface FooterSessionHost {
+	session?: Pick<AgentSession, "getContextUsage">;
 }
 
 export function formatFooterTokenCount(count: number): string {
@@ -131,246 +104,183 @@ export function injectDumbZoneIntoFooterLine(
 	const insertText = ` ${label}`;
 	const suffix = line.slice(insertAt);
 	const removableSpaces = suffix.match(/^ */)?.[0].length ?? 0;
-	const spacesToRemove = Math.min(removableSpaces, visibleWidth(insertText));
+	// Consume padding, but retain the separator before an adjacent (auto) tag.
+	const spacesToRemove = Math.min(Math.max(0, removableSpaces - 1), visibleWidth(insertText));
 
 	return truncateToWidth(`${line.slice(0, insertAt)}${insertText}${suffix.slice(spacesToRemove)}`, width, "");
 }
 
-export function buildFooterRightSideCandidates(
-	model: Pick<Model<Api>, "provider" | "id" | "reasoning">,
-	thinkingLevel: string | undefined,
-): string[] {
-	const modelName = model.id;
-	let rightSideWithoutProvider = modelName;
-
-	if (model.reasoning) {
-		const level = thinkingLevel || "off";
-		rightSideWithoutProvider = level === "off" ? `${modelName} • thinking off` : `${modelName} • ${level}`;
-	}
-
-	return [`(${model.provider}) ${rightSideWithoutProvider}`, rightSideWithoutProvider];
+export function stripModelInfoFromFooterLine(line: string): string {
+	// Pi joins stats with single spaces, then pads the model with at least two.
+	// Cut at that boundary, not at a model name that Pi may have truncated.
+	const paddingStart = line.search(/ {2,}/);
+	return paddingStart < 0 ? line : truncateToWidth(line, visibleWidth(line.slice(0, paddingStart)), "");
 }
 
-function findFooterRightSide(
-	line: string,
-	model: Pick<Model<Api>, "provider" | "id" | "reasoning">,
-	thinkingLevel: string | undefined,
-): { candidate: string; candidateStart: number; paddingStart: number } | undefined {
-	for (const candidate of buildFooterRightSideCandidates(model, thinkingLevel)) {
-		const candidateStart = line.lastIndexOf(candidate);
-		if (candidateStart === -1) continue;
+const WARNING_MESSAGES = {
+	footer: "Footer veil: unexpected footer shape; usage statuses left visible.",
+	widget: "Footer veil: unexpected widget surface; usage widgets left visible.",
+	openai: "Footer veil: OpenAI presentation unavailable; load Better OpenAI with /openai-usage-presentation support.",
+};
+type VeilWarningKind = keyof typeof WARNING_MESSAGES;
 
-		let paddingStart = candidateStart;
-		while (paddingStart > 0 && line[paddingStart - 1] === " ") {
-			paddingStart--;
-		}
-
-		return { candidate, candidateStart, paddingStart };
-	}
-
-	return undefined;
+interface VeilSessionBindings {
+	formatDumbZoneLabel(): string;
+	reportWarning(message: string): void;
 }
 
-export function stripModelInfoFromFooterLine(
-	line: string,
-	model: Pick<Model<Api>, "provider" | "id" | "reasoning">,
-	thinkingLevel: string | undefined,
-): string {
-	const match = findFooterRightSide(line, model, thinkingLevel);
-	if (!match) return line;
-
-	return line.slice(0, match.paddingStart) + line.slice(match.candidateStart + match.candidate.length);
+function defaultSessionBindings(): VeilSessionBindings {
+	return { formatDumbZoneLabel: () => DUMB_ZONE_LABEL, reportWarning: () => {} };
 }
 
-function patchFooterRender(
-	getShowModelInfo: () => boolean,
-	getDumbZoneLabel: () => string,
-	onVeilShapeWarning: () => void,
-): void {
-	if (footerPatched) return;
+// Own patches and current UI bindings together. Pi emits session_shutdown
+// before replacing extension modules; no render-host tracking is needed.
+const veil = {
+	shown: false,
+	session: defaultSessionBindings(),
+	warnings: new Set<VeilWarningKind>(),
+	originalFooterRender: undefined as FooterComponent["render"] | undefined,
+	originalRenderWidgetContainer: undefined as RenderWidgetContainerFn | undefined,
 
-	originalFooterRender = FooterComponent.prototype.render;
-	FooterComponent.prototype.render = function renderWithFooterVeil(width: number): string[] {
-		const lines = withVeiledExtensionStatuses(
-			this,
-			!getShowModelInfo(),
-			() => originalFooterRender?.call(this, width) ?? [],
-			onVeilShapeWarning,
-		);
-		if (lines.length < 2) return lines;
+	beginSession(bindings: VeilSessionBindings): void {
+		this.shown = false;
+		this.warnings.clear();
+		this.session = bindings;
+	},
 
-		const session = (this as unknown as {
-			session?: {
-				state?: { model?: Model<Api>; thinkingLevel?: string };
-				getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+	warn(kind: VeilWarningKind): void {
+		if (this.warnings.has(kind)) return;
+		this.warnings.add(kind);
+		this.session.reportWarning(WARNING_MESSAGES[kind]);
+	},
+
+	install(): void {
+		if (!this.originalFooterRender) {
+			const original = FooterComponent.prototype.render;
+			FooterComponent.prototype.render = function renderWithFooterVeil(width: number): string[] {
+				const lines = withVeiledExtensionStatuses(
+					this,
+					!veil.shown,
+					() => original.call(this, width),
+					() => veil.warn("footer"),
+				);
+				if (lines.length < 2) return lines;
+
+				let footerLine = veil.shown ? lines[1] : stripModelInfoFromFooterLine(lines[1]);
+				const session = (this as unknown as FooterSessionHost).session;
+				const usage = session?.getContextUsage();
+				if (shouldShowDumbZone(usage)) {
+					footerLine = injectDumbZoneIntoFooterLine(
+						footerLine,
+						usage?.contextWindow,
+						veil.session.formatDumbZoneLabel(),
+						width,
+					);
+				}
+
+				const nextLines = [...lines];
+				nextLines[1] = footerLine;
+				return nextLines;
 			};
-		}).session;
-		const model = session?.state?.model;
-		const nextLines = [...lines];
-		let footerLine = lines[1] ?? "";
-
-		if (model && !getShowModelInfo()) {
-			footerLine = stripModelInfoFromFooterLine(footerLine, model, session?.state?.thinkingLevel);
+			this.originalFooterRender = original;
 		}
 
-		const usage = session?.getContextUsage?.();
-		if (shouldShowDumbZone(usage)) {
-			footerLine = injectDumbZoneIntoFooterLine(footerLine, usage?.contextWindow, getDumbZoneLabel(), width);
+		if (!this.originalRenderWidgetContainer) {
+			const proto = InteractiveMode.prototype as unknown as {
+				renderWidgetContainer?: RenderWidgetContainerFn;
+			};
+			if (typeof proto.renderWidgetContainer !== "function") {
+				this.warn("widget");
+			} else {
+				const original = proto.renderWidgetContainer;
+				proto.renderWidgetContainer = function renderWidgetContainerWithFooterVeil(
+					this: InteractiveMode,
+					container: WidgetContainer,
+					widgets: ReadonlyMap<string, unknown>,
+					spacerWhenEmpty: boolean,
+					leadingSpacer: boolean,
+				): void {
+					const visible = veil.shown
+						? widgets
+						: new Map([...widgets].filter(([key]) => ALWAYS_VISIBLE_WIDGETS.has(key)));
+					original.call(this, container, visible, spacerWhenEmpty, leadingSpacer);
+				};
+				this.originalRenderWidgetContainer = original;
+			}
 		}
+	},
 
-		nextLines[1] = footerLine;
-		return nextLines;
-	};
-	footerPatched = true;
-}
+	uninstall(): void {
+		if (this.originalFooterRender) FooterComponent.prototype.render = this.originalFooterRender;
+		this.originalFooterRender = undefined;
+		if (this.originalRenderWidgetContainer) {
+			(InteractiveMode.prototype as unknown as { renderWidgetContainer: RenderWidgetContainerFn })
+				.renderWidgetContainer = this.originalRenderWidgetContainer;
+		}
+		this.originalRenderWidgetContainer = undefined;
+		this.session = defaultSessionBindings();
+	},
 
-function unpatchFooterRender(): void {
-	if (!footerPatched || !originalFooterRender) return;
+	refresh(ctx: ExtensionContext): void {
+		if (!this.originalRenderWidgetContainer || !ctx.hasUI) return;
+		// Removing our unused widget through the public UI API rebuilds both
+		// containers, including widgets populated before the patch ran.
+		// A paint request alone leaves cached children unchanged.
+		ctx.ui.setWidget(REFRESH_WIDGET_KEY, undefined);
+	},
+};
 
-	FooterComponent.prototype.render = originalFooterRender;
-	footerPatched = false;
-	originalFooterRender = undefined;
-}
-
-type RenderWidgetContainerFn = (
-	this: unknown,
-	container: unknown,
-	widgets: ReadonlyMap<string, unknown>,
-	spacerWhenEmpty: boolean,
-	leadingSpacer: boolean,
-) => void;
-
-interface WidgetRenderHost {
-	renderWidgets(): void;
-}
-
-let originalRenderWidgetContainer: RenderWidgetContainerFn | undefined;
-let widgetRenderPatched = false;
-let widgetShapeWarningShown = false;
-let widgetRenderHost: WidgetRenderHost | undefined;
-
-/**
- * Provider usage widgets (hypercharm, zro, neuralwatt) bypass the footer's
- * extension-status line entirely: they render via ctx.ui.setWidget into
- * InteractiveMode's above/below-editor containers. Veil them by filtering the
- * widget map inside renderWidgetContainer, which rebuilds both containers.
- */
-function patchWidgetRender(getShowModelInfo: () => boolean, onWidgetShapeWarning: () => void): void {
-	if (widgetRenderPatched) return;
-	const proto = InteractiveMode.prototype as unknown as {
-		renderWidgetContainer?: RenderWidgetContainerFn;
-		renderWidgets?: () => void;
-	};
-	if (typeof proto.renderWidgetContainer !== "function" || typeof proto.renderWidgets !== "function") {
-		onWidgetShapeWarning();
-		return;
-	}
-	originalRenderWidgetContainer = proto.renderWidgetContainer;
-	proto.renderWidgetContainer = function renderWidgetContainerWithFooterVeil(
-		this: unknown,
-		container: unknown,
-		widgets: ReadonlyMap<string, unknown>,
-		spacerWhenEmpty: boolean,
-		leadingSpacer: boolean,
-	): void {
-		widgetRenderHost = this as WidgetRenderHost;
-		const visible = filterUsageWidgets(widgets, !getShowModelInfo());
-		originalRenderWidgetContainer?.call(this, container, visible, spacerWhenEmpty, leadingSpacer);
-	};
-	widgetRenderPatched = true;
-}
-
-function unpatchWidgetRender(): void {
-	if (!widgetRenderPatched || !originalRenderWidgetContainer) return;
-
-	(InteractiveMode.prototype as unknown as { renderWidgetContainer: RenderWidgetContainerFn }).renderWidgetContainer =
-		originalRenderWidgetContainer;
-	widgetRenderPatched = false;
-	originalRenderWidgetContainer = undefined;
-	widgetRenderHost = undefined;
-}
-
-/** Rebuild the widget containers so a veil-state change applies without waiting for the next setWidget. */
-function refreshWidgetContainers(): void {
-	if (!widgetRenderPatched) return;
-	try {
-		widgetRenderHost?.renderWidgets();
-	} catch {
-		// The host may be mid-teardown; the next render cycle reapplies the veil.
-	}
-}
-
-const OPENAI_PRESENTATION_COMMAND = "openai-usage-presentation";
-type OpenAIPresentationAction = "hide" | "show";
-type PresentationDispatchResult = "dispatched" | "unavailable";
-
-function syncOpenAIPresentation(
-	pi: Pick<ExtensionAPI, "getCommands" | "sendUserMessage">,
-	action: OpenAIPresentationAction,
-): PresentationDispatchResult {
-	if (!pi.getCommands().some((command) => command.source === "extension" && command.name === OPENAI_PRESENTATION_COMMAND)) {
-		return "unavailable";
-	}
-	// Pi 0.85.1 dispatches recognized extension commands before prompting, even while streaming.
-	pi.sendUserMessage(`/${OPENAI_PRESENTATION_COMMAND} ${action}`, { expandPromptTemplates: true });
-	return "dispatched";
+/** Restore prototypes and clear session bindings between isolated unit tests. */
+export function resetFooterVeilForTests(): void {
+	veil.uninstall();
+	veil.beginSession(defaultSessionBindings());
 }
 
 export default function footerVeilExtension(pi: ExtensionAPI): void {
-	let showModelInfo = DEFAULT_SHOW_MODEL_INFO;
-	let openAIWarningShown = false;
-
 	function synchronizeOpenAI(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		const result = syncOpenAIPresentation(pi, showModelInfo ? "show" : "hide");
-		if (result === "unavailable" && !openAIWarningShown) {
-			openAIWarningShown = true;
-			ctx.ui.notify("Footer veil: OpenAI presentation unavailable; load Better OpenAI with /openai-usage-presentation support.", "warning");
+		const available = pi.getCommands().some(
+			(command) => command.source === "extension" && command.name === OPENAI_PRESENTATION_COMMAND,
+		);
+		if (!available) {
+			veil.warn("openai");
+			return;
 		}
+		// Pi dispatches recognized extension commands before prompting, even while streaming.
+		pi.sendUserMessage(`/${OPENAI_PRESENTATION_COMMAND} ${veil.shown ? "show" : "hide"}`, {
+			expandPromptTemplates: true,
+		});
 	}
 
 	pi.registerShortcut(TOGGLE_MODEL_INFO_SHORTCUT, {
-		description: "Toggle footer veil (model info + usage widgets)",
+		description: "Toggle footer details (skill guide stays visible)",
 		handler: async (ctx) => {
-			showModelInfo = !showModelInfo;
+			veil.shown = !veil.shown;
+			veil.refresh(ctx);
 			if (ctx.hasUI) {
 				synchronizeOpenAI(ctx);
-				ctx.ui.notify("Model info and usage " + (showModelInfo ? "shown" : "hidden") + ".", "info");
+				ctx.ui.notify(`Model info and usage ${veil.shown ? "shown" : "hidden"}.`, "info");
 			}
-			refreshWidgetContainers();
 		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		showModelInfo = DEFAULT_SHOW_MODEL_INFO;
-		openAIWarningShown = false;
-		patchFooterRender(
-			() => showModelInfo,
-			() => ctx.ui.theme.fg("warning", DUMB_ZONE_LABEL),
-			() => {
-				if (veilShapeWarningShown || !ctx.hasUI) return;
-				veilShapeWarningShown = true;
-				ctx.ui.notify("Footer veil: unexpected footer shape; usage statuses left visible.", "warning");
+		veil.beginSession({
+			formatDumbZoneLabel: () => ctx.ui.theme.fg("warning", DUMB_ZONE_LABEL),
+			reportWarning: (message) => {
+				if (ctx.hasUI) ctx.ui.notify(message, "warning");
 			},
-		);
-		patchWidgetRender(
-			() => showModelInfo,
-			() => {
-				if (widgetShapeWarningShown || !ctx.hasUI) return;
-				widgetShapeWarningShown = true;
-				ctx.ui.notify("Footer veil: unexpected widget surface; usage widgets left visible.", "warning");
-			},
-		);
-		refreshWidgetContainers();
+		});
+		veil.install();
+		veil.refresh(ctx);
 	});
 
 	pi.on("resources_discover", (_event, ctx) => {
-		// This runs after every session_start handler, including Better OpenAI's visibility reset.
+		// Runs after all session_start handlers, including Better OpenAI's visibility reset.
 		synchronizeOpenAI(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
-		unpatchFooterRender();
-		unpatchWidgetRender();
+		veil.uninstall();
 	});
 }

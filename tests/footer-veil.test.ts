@@ -1,16 +1,35 @@
-import { assert } from "vitest";
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { stripVTControlCharacters } from "node:util";
+import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
 import { FooterComponent, InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import footerVeilExtension from "../extensions/footer-veil.ts";
 import {
-	filterUsageStatuses,
-	filterUsageWidgets,
 	withVeiledExtensionStatuses,
 	formatFooterTokenCount,
 	injectDumbZoneIntoFooterLine,
 	shouldShowDumbZone,
+	stripModelInfoFromFooterLine,
+	resetFooterVeilForTests,
 } from "../extensions/footer-veil.ts";
+
+void describe("footer-veil model boundary", () => {
+	void it.each([
+		["↑1k ↓2k 9.2%/1.0M (auto)        (provider) long-model • max", "↑1k ↓2k 9.2%/1.0M (auto)"],
+		["↑1k 9.2%/1.0M  MODEL_TRUNCATED", "↑1k 9.2%/1.0M"],
+		["↑1k 9.2%/1.0M", "↑1k 9.2%/1.0M"],
+	])("retains only the stats in %s", (line, expected) => {
+		assert.strictEqual(stripVTControlCharacters(stripModelInfoFromFooterLine(line)), expected);
+	});
+
+	void it("preserves colored stats while dropping the model", () => {
+		const line = "\u001b[2m↑1k \u001b[33m80.0%/1.0M\u001b[0m\u001b[2m       MODEL\u001b[0m";
+		const result = stripModelInfoFromFooterLine(line);
+		assert.include(result, "\u001b[33m80.0%/1.0M");
+		assert.notInclude(result, "MODEL");
+		assert.strictEqual(visibleWidth(result), visibleWidth("↑1k 80.0%/1.0M"));
+		assert.isTrue(result.endsWith("\u001b[0m"));
+	});
+});
 
 void describe("footer-veil dumb-zone footer marker", () => {
 	void it("formats footer token counts like Pi's footer", () => {
@@ -28,6 +47,11 @@ void describe("footer-veil dumb-zone footer marker", () => {
 		assert.strictEqual(shouldShowDumbZone({ tokens: 128_001 }), true);
 	});
 
+	void it("keeps the auto indicator separated from the dumb-zone marker", () => {
+		const result = injectDumbZoneIntoFooterLine("14.0%/1.0M (auto)", 1_000_000, "dumb", 80);
+		assert.strictEqual(result, "14.0%/1.0M dumb (auto)");
+	});
+
 	void it("inserts the marker inline after the context window without adding a row", () => {
 		const line = "up24k dn3k 68.2%/200k                         model";
 		const label = "dumb";
@@ -43,79 +67,17 @@ function statusMap(...entries: Array<[string, string]>): Map<string, string> {
 	return new Map(entries);
 }
 
-void describe("footer-veil usage status filter", () => {
-	void it("passes the map through untouched when the veil is lifted", () => {
-		const statuses = statusMap(
-			["synthetic-usage", "week:82%"],
-			["fabric-prewalk", "armed"],
-		);
-		assert.strictEqual(filterUsageStatuses(statuses, false), statuses);
-	});
-
-	void it("drops provider usage keys but keeps unrelated statuses while veiled", () => {
-		const statuses = statusMap(
-			["synthetic-usage", "week:82%"],
-			["opencode-go-usage", "5h:10%"],
-			["zro-session", "$1.20"],
-			["zro-account", "Pro"],
-			["hypercharm-session", "10 hc"],
-			["hypercharm-account", "100 hc"],
-			["neuralwatt-energy", "1.5J"],
-			["neuralwatt-quota", "pro"],
-			["neuralwatt-mcr", "MCR abc"],
-			["fabric-prewalk", "armed"],
-			["other-ext", "visible"],
-		);
-		const filtered = filterUsageStatuses(statuses, true);
-		assert.deepStrictEqual(Array.from(filtered.keys()), ["fabric-prewalk", "other-ext"]);
-		assert.strictEqual(filtered.get("fabric-prewalk"), "armed");
-	});
-
-	void it("filters Better OpenAI status without mutating its source", () => {
-		const statuses = statusMap(["better-openai", "5h:90%"], ["fabric-prewalk", "armed"]);
-		assert.deepStrictEqual([...filterUsageStatuses(statuses, true)], [["fabric-prewalk", "armed"]]);
-		assert.strictEqual(statuses.get("better-openai"), "5h:90%");
-		assert.strictEqual(filterUsageStatuses(statuses, false), statuses);
-	});
-
-	void it("returns the same map when nothing is veiled", () => {
-		const statuses = statusMap(["fabric-prewalk", "armed"]);
-		assert.strictEqual(filterUsageStatuses(statuses, true), statuses);
-	});
-
-	void it("returns an empty map when every status is a usage widget", () => {
-		const statuses = statusMap(["synthetic-usage", "week:82%"]);
-		assert.strictEqual(filterUsageStatuses(statuses, true).size, 0);
-	});
-});
-
-void describe("footer-veil usage widget filter", () => {
-	function widgetMap(...entries: Array<[string, unknown]>): Map<string, unknown> {
-		return new Map(entries);
-	}
-
-	void it("passes the map through untouched when the veil is lifted", () => {
-		const widgets = widgetMap(["hypercharm", { tag: "hc" }], ["fabric-prewalk", { tag: "armed" }]);
-		assert.strictEqual(filterUsageWidgets(widgets, false), widgets);
-	});
-
-	void it("drops provider usage widget keys but keeps unrelated widgets while veiled", () => {
-		const hypercharm = { tag: "hc" };
-		const other = { tag: "other" };
-		const widgets = widgetMap(
-			["hypercharm", hypercharm],
-			["zro", { tag: "zro" }],
-			["neuralwatt", { tag: "nw" }],
-			["other-ext", other],
-		);
-		const filtered = filterUsageWidgets(widgets, true);
-		assert.deepStrictEqual(Array.from(filtered.keys()), ["other-ext"]);
-		assert.strictEqual(filtered.get("other-ext"), other);
-	});
-
-	void it("returns the same map when nothing is veiled", () => {
-		const widgets = widgetMap(["other-ext", { tag: "other" }]);
-		assert.strictEqual(filterUsageWidgets(widgets, true), widgets);
+void describe("footer-veil allowlist", () => {
+	void it("hides every status while veiled, including keys it has never seen", () => {
+		const statuses = statusMap(["hypercharm-session", "10 hc"], ["future-provider", "new"]);
+		const host = { footerData: { getExtensionStatuses: () => statuses } };
+		const lines = withVeiledExtensionStatuses(host, true, () => [
+			"pwd",
+			"stats",
+			[...host.footerData.getExtensionStatuses().values()].join(" "),
+		]);
+		assert.deepStrictEqual(lines[2], "");
+		assert.strictEqual(statuses.size, 2);
 	});
 });
 
@@ -147,11 +109,11 @@ void describe("footer-veil render wrapper", () => {
 		assert.strictEqual(host.footerData.getExtensionStatuses, before);
 	});
 
-	void it("hides usage statuses from the render while veiled and restores afterwards", () => {
+	void it("hides all statuses from the render while veiled and restores afterwards", () => {
 		const host = fakeHost(statusMap(["synthetic-usage", "week:82%"], ["fabric-prewalk", "armed"]));
 		const before = host.footerData.getExtensionStatuses;
 		const lines = withVeiledExtensionStatuses(host, true, () => fakePiRender(host));
-		assert.deepStrictEqual(lines[2], "armed");
+		assert.deepStrictEqual(lines[2], "");
 		assert.strictEqual(host.footerData.getExtensionStatuses, before);
 	});
 
@@ -178,26 +140,28 @@ void describe("footer-veil render wrapper", () => {
 
 	void it("does not warn on unexpected shape when the veil is lifted", () => {
 		let warnings = 0;
-		withVeiledExtensionStatuses({ noFooterData: true }, false, () => ["only"], () => {
+		const lines = withVeiledExtensionStatuses({ noFooterData: true }, false, () => ["only"], () => {
 			warnings += 1;
 		});
-		assert.deepStrictEqual(["only"], ["only"]);
+		assert.deepStrictEqual(lines, ["only"]);
 		assert.strictEqual(warnings, 0);
 	});
 });
 
 void describe("footer-veil extension wiring", () => {
 	const shutdowns: Array<() => Promise<void>> = [];
-	function fakeUI(): {
-		notices: Array<string>;
-		notify(message: string): void;
-		theme: { fg(_color: string, text: string): string };
-	} {
+	function fakeUI() {
 		const notices: Array<string> = [];
+		const widgetClears: Array<string> = [];
 		return {
 			notices,
+			widgetClears,
 			notify(message: string) {
 				notices.push(message);
+			},
+			setWidget(key: string, content: undefined) {
+				assert.strictEqual(content, undefined);
+				widgetClears.push(key);
 			},
 			theme: { fg: (_color: string, text: string) => text },
 		};
@@ -236,20 +200,39 @@ void describe("footer-veil extension wiring", () => {
 		for (const handler of s.events["resources_discover"] ?? []) await handler(undefined as never, s.ctx as never);
 	}
 
-	let savedRender: unknown;
-	let savedRenderWidgetContainer: unknown;
-	beforeEach(() => {
-		savedRender = FooterComponent.prototype.render;
-		savedRenderWidgetContainer = (InteractiveMode.prototype as unknown as { renderWidgetContainer: unknown })
+	type RenderWidgetContainerFn = (
+		container: { children: Array<unknown>; clear(): void; addChild(c: unknown): void },
+		widgets: ReadonlyMap<string, unknown>,
+		spacerWhenEmpty: boolean,
+		leadingSpacer: boolean,
+	) => void;
+
+	function protoRenderWidgetContainer(): RenderWidgetContainerFn {
+		return (InteractiveMode.prototype as unknown as { renderWidgetContainer: RenderWidgetContainerFn })
 			.renderWidgetContainer;
+	}
+
+	function fakeContainer(): { children: Array<unknown>; clear(): void; addChild(c: unknown): void } {
+		const children: Array<unknown> = [];
+		return {
+			children,
+			clear() {
+				children.length = 0;
+			},
+			addChild(c: unknown) {
+				children.push(c);
+			},
+		};
+	}
+
+	beforeEach(() => {
+		resetFooterVeilForTests();
 	});
 	afterEach(async () => {
 		try {
 			for (const shutdown of shutdowns.splice(0)) await shutdown();
 		} finally {
-			FooterComponent.prototype.render = savedRender as typeof FooterComponent.prototype.render;
-			(InteractiveMode.prototype as unknown as { renderWidgetContainer: unknown }).renderWidgetContainer =
-				savedRenderWidgetContainer;
+			resetFooterVeilForTests();
 		}
 	});
 
@@ -336,6 +319,7 @@ void describe("footer-veil extension wiring", () => {
 		await s.shortcuts["ctrl+p"].handler(s.ctx as never);
 		assert.deepStrictEqual(s.sent, []);
 		assert.deepStrictEqual(s.ui.notices, []);
+		assert.deepStrictEqual(s.ui.widgetClears, []);
 	});
 
 	void it("restores the built-in footer on shutdown without sending show", async () => {
@@ -364,39 +348,7 @@ void describe("footer-veil extension wiring", () => {
 		assert.ok(s.ui.notices.some((n) => n.includes("hidden")));
 	});
 
-	void it("starts a session without a widget surface", async () => {
-		const s = setup();
-		await sessionStart(s);
-		await s.shortcuts["ctrl+p"].handler(s.ctx as never);
-		assert.ok(s.ui.notices.some((n) => n.includes("shown")));
-	});
-
 	void describe("widget veiling", () => {
-		type RenderWidgetContainerFn = (
-			container: { children: Array<unknown>; clear(): void; addChild(c: unknown): void },
-			widgets: ReadonlyMap<string, unknown>,
-			spacerWhenEmpty: boolean,
-			leadingSpacer: boolean,
-		) => void;
-
-		function protoRenderWidgetContainer(): RenderWidgetContainerFn {
-			return (InteractiveMode.prototype as unknown as { renderWidgetContainer: RenderWidgetContainerFn })
-				.renderWidgetContainer;
-		}
-
-		function fakeContainer(): { children: Array<unknown>; clear(): void; addChild(c: unknown): void } {
-			const children: Array<unknown> = [];
-			return {
-				children,
-				clear() {
-					children.length = 0;
-				},
-				addChild(c: unknown) {
-					children.push(c);
-				},
-			};
-		}
-
 		void it("patches the widget container render on session start and restores it on shutdown", async () => {
 			const s = setup();
 			const original = protoRenderWidgetContainer();
@@ -406,46 +358,79 @@ void describe("footer-veil extension wiring", () => {
 			assert.strictEqual(protoRenderWidgetContainer(), original);
 		});
 
-		void it("hides usage widgets while veiled and keeps unrelated widgets", async () => {
+		void it("drops every widget while veiled, including unknown keys", async () => {
 			const s = setup();
 			await sessionStart(s);
-			const container = fakeContainer();
+			const hypercharm = { tag: "hc" };
 			const other = { tag: "other" };
+			const future = { tag: "future" };
+			const widgets = new Map<string, unknown>([
+				["hypercharm", hypercharm],
+				["other-ext", other],
+				["future-widget", future],
+			]);
+			const container = fakeContainer();
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, []);
+			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, [hypercharm, other, future]);
+			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, []);
+		});
+
+		void it("keeps the skill guide visible without mutating the widget map", async () => {
+			const s = setup();
+			await sessionStart(s);
+			const guide = { tag: "guide" }, usage = { tag: "usage" };
+			const widgets = new Map<string, unknown>([["skill-guide", guide], ["unknown-provider", usage]]);
+			const container = fakeContainer();
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, [guide]);
+			assert.strictEqual(widgets.get("unknown-provider"), usage);
+			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, [guide, usage]);
+			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
+			protoRenderWidgetContainer().call({}, container, widgets, false, false);
+			assert.deepStrictEqual(container.children, [guide]);
+		});
+
+		void it("reinstalls the veil after shutdown and startup", async () => {
+			const first = setup();
+			await sessionStart(first);
+			for (const handler of first.events["session_shutdown"]) await handler(undefined as never, first.ctx as never);
+			const second = setup();
+			await sessionStart(second);
+			await second.shortcuts["ctrl+p"].handler(second.ctx as never);
+			const hypercharm = { tag: "hc" };
+			const container = fakeContainer();
 			protoRenderWidgetContainer().call(
 				{ renderWidgets() {} },
 				container,
-				new Map([
-					["hypercharm", { tag: "hc" }],
-					["other-ext", other],
-				]),
+				new Map<string, unknown>([["hypercharm", hypercharm]]),
 				false,
 				false,
 			);
-			assert.deepStrictEqual(container.children, [other]);
+			assert.deepStrictEqual(container.children, [hypercharm]);
 		});
 
-		void it("reveals usage widgets after ctrl+p and refreshes the live host's containers", async () => {
+		void it("rebuilds widgets on startup and toggles without a prior render callback", async () => {
 			const s = setup();
 			await sessionStart(s);
-			let refreshes = 0;
-			const host = {
-				renderWidgets() {
-					refreshes += 1;
-				},
-			};
-			const hypercharm = { tag: "hc" };
-			const widgets = () => new Map<string, unknown>([["hypercharm", hypercharm]]);
-			const container = fakeContainer();
-			protoRenderWidgetContainer().call(host, container, widgets(), false, false);
-			assert.deepStrictEqual(container.children, []);
+			assert.deepStrictEqual(s.ui.widgetClears, ["footer-veil"]);
 			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
-			assert.strictEqual(refreshes, 1);
-			protoRenderWidgetContainer().call(host, container, widgets(), false, false);
-			assert.deepStrictEqual(container.children, [hypercharm]);
 			await s.shortcuts["ctrl+p"].handler(s.ctx as never);
-			assert.strictEqual(refreshes, 2);
-			protoRenderWidgetContainer().call(host, container, widgets(), false, false);
-			assert.deepStrictEqual(container.children, []);
+			assert.deepStrictEqual(s.ui.widgetClears, ["footer-veil", "footer-veil", "footer-veil"]);
+		});
+
+		void it("surfaces widget rebuild errors instead of swallowing them", async () => {
+			const s = setup();
+			await sessionStart(s);
+			s.ui.setWidget = () => { throw new Error("rebuild failed"); };
+			await expect(s.shortcuts["ctrl+p"].handler(s.ctx as never)).rejects.toThrow("rebuild failed");
+			assert.isFalse(s.ui.notices.some((notice) => notice.includes("shown")));
 		});
 
 		void it("warns once when the widget surface is missing", async () => {
